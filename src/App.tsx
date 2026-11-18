@@ -65,41 +65,40 @@ const GUIDED_STEPS: Array<{ step: number; view: ActiveView; title: string; hint:
   {
     step: 1,
     view: 'command-center',
-    title: 'Anomalía detectada en red',
-    hint: 'Observa el nodo en estado crítico en el mapa hidráulico y la cola priorizada.',
+    title: 'Evento hidráulico y forense de fuga',
+    hint: 'El nodo Troncal Norte está crítico. Lee el tramo sospechoso (P-05), el caudal perdido estimado y la población expuesta aguas abajo.',
   },
   {
     step: 2,
     view: 'sensors',
-    title: 'Evidencia cuantitativa IoT',
-    hint: 'Inspecciona la desviación de series temporales frente a la línea base histórica.',
+    title: 'Series temporales del evento',
+    hint: 'Presión y caudal derivan minuto a minuto frente a la línea base. Cambia a pH o nivel para ver que el resto sigue estable.',
   },
   {
     step: 3,
     view: 'vision',
-    title: 'Inspección visual multimodal',
-    hint: 'Revisa qué se observa en la foto y qué no puede confirmarse sin análisis.',
+    title: 'Evidencia fotográfica',
+    hint: 'La foto de la brida se correlaciona con los sensores. Separa lo observado de lo que no se puede confirmar.',
   },
   {
     step: 4,
     view: 'aqua-brain',
-    title: 'Razonamiento en Aqua Brain',
-    hint: 'Evalúa hipótesis, incertidumbre y aprueba la recomendación para emitir la orden.',
+    title: 'Diagnóstico explicable y concordancia',
+    hint: 'Revisa si sensores, foto y topología coinciden. La confianza se limita si hay conflicto. Aprueba para emitir la orden.',
   },
   {
     step: 5,
     view: 'work-orders',
-    title: 'Gestión de Orden de Trabajo',
-    hint: 'Inicia o cierra la intervención adjuntando evidencia de campo.',
+    title: 'Ejecución: responsable, checklist y foto',
+    hint: 'Asigna responsable, completa el checklist y adjunta la foto de cierre. Sin eso el sistema no deja cerrar.',
   },
   {
     step: 6,
     view: 'ledger',
-    title: 'Verificación SHA-256',
-    hint: 'Pulsa "Verificar Integridad de Cadena" para validar matemáticamente todo el historial.',
+    title: 'Trazabilidad verificable',
+    hint: 'Verifica la cadena SHA-256. Prueba "Simular Alteración" y observa el bloque exacto que se rompe.',
   },
 ];
-
 export default function App() {
   const [showWelcome, setShowWelcome] = useState<boolean>(() => {
     if (typeof window === 'undefined') return true;
@@ -304,12 +303,7 @@ export default function App() {
     }
   };
 
-  const handleStartGuidedDemo = async () => {
-    setShowWelcome(false);
-    setActiveView('command-center');
-    setGuidedStepIdx(0);
-    await handleTriggerScenario('contamination');
-  };
+  const handleStartGuidedDemo = () => handleRunFrankensteinDemo();
 
   const handleIngestCsv = async (csvText: string) => {
     const res = await fetch('/api/telemetry/ingest', {
@@ -391,6 +385,38 @@ export default function App() {
     }
   };
 
+  const applyWorkOrderResponse = (data: {
+    workOrders: SmartWorkOrder[];
+    anomalies: AnomalyEvent[];
+    nodes: NetworkNode[];
+    seriesByNode: Record<string, TelemetryReading[]>;
+    ledger: TrustLedgerEntry[];
+  }) => {
+    setWorkOrders(data.workOrders);
+    setAnomalies(data.anomalies);
+    setNodes(data.nodes);
+    setSeriesByNode(data.seriesByNode);
+    setLedger(data.ledger);
+  };
+
+  /** Llama a la API de órdenes; si el servidor rechaza, lanza el mensaje real para mostrarlo en la UI. */
+  const callWorkOrderApi = async (url: string, method: string, body: unknown) => {
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } catch {
+      throw new Error('Sin conexión con el servidor. La acción no se aplicó.');
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Error ${res.status} del servidor.`);
+    applyWorkOrderResponse(data);
+    return data;
+  };
+
   const handleUpdateWorkOrder = async (
     orderId: string,
     payload: {
@@ -399,22 +425,65 @@ export default function App() {
       closureEvidenceLabel?: string;
     }
   ) => {
-    const res = await fetch(`/api/work-orders/${orderId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    if (res.ok) {
-      setWorkOrders(data.workOrders);
-      setAnomalies(data.anomalies);
-      setNodes(data.nodes);
-      setSeriesByNode(data.seriesByNode);
-      setLedger(data.ledger);
-      notify(`Orden ${orderId} actualizada a ${payload.status}.`);
-    }
+    await callWorkOrderApi(`/api/work-orders/${orderId}`, 'PATCH', payload);
+    notify(`Orden ${orderId} actualizada a ${payload.status}.`);
   };
 
+  const handleAssignOrder = async (orderId: string, assignee: string) => {
+    await callWorkOrderApi(`/api/work-orders/${orderId}/assignee`, 'PATCH', { assignee });
+    notify(`Responsable de ${orderId}: ${assignee}. Registrado en Trust Ledger.`);
+  };
+
+  const handleToggleChecklist = async (orderId: string, itemId: string, done: boolean) => {
+    await callWorkOrderApi(`/api/work-orders/${orderId}/checklist/${itemId}`, 'PATCH', { done });
+  };
+
+  const handleUploadEvidence = async (orderId: string, fileName: string, dataUrl: string) => {
+    await callWorkOrderApi(`/api/work-orders/${orderId}/evidence`, 'POST', { fileName, dataUrl });
+    notify('Foto de cierre almacenada y su SHA-256 sellado en Trust Ledger.');
+  };
+
+  const handleDownloadDossier = async (orderId: string) => {
+    const res = await fetch(`/api/work-orders/${orderId}/dossier`);
+    if (!res.ok) throw new Error('No se pudo generar el expediente.');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `dossier-${orderId}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    notify('Expediente descargado. Verifícalo offline con: npm run verify:dossier -- <archivo>');
+  };
+
+  const handleRunFrankensteinDemo = async () => {
+    setShowWelcome(false);
+    setIsBusy(true);
+    try {
+      const res = await fetch('/api/demo/frankenstein', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'No se pudo iniciar el modo demo.');
+      setNodes(data.nodes);
+      setSeriesByNode(data.seriesByNode);
+      setAnomalies(data.anomalies);
+      setVisionAnalyses(data.visionAnalyses);
+      setDiagnoses(data.diagnoses);
+      setWorkOrders(data.workOrders ?? []);
+      setLedger(data.ledger);
+      setSelectedNodeId(data.scenario.nodeId);
+      setActiveView('command-center');
+      setGuidedStepIdx(0);
+      notify('Modo demo reproducible iniciado. Todas las lecturas son sintéticas.');
+    } catch (e) {
+      notify(e instanceof Error ? e.message : 'Error al iniciar el modo demo.');
+    } finally {
+      setIsBusy(false);
+    }
+  };
   const handleCreateOfflineReport = async (record: OfflineReportRecord) => {
     await saveOfflineReport(record);
     const updated = await listOfflineReports();
@@ -508,6 +577,12 @@ export default function App() {
             </svg>
             Aqua Sentinel
           </button>
+          <span
+            className="hidden sm:inline-flex items-center px-2 py-0.5 text-[11px] font-mono font-semibold text-amber-300 border border-amber-500/40 rounded-md whitespace-nowrap"
+            title="Todas las lecturas de esta red son sintéticas, generadas para la demostración. No son mediciones reales."
+          >
+            DATOS SINTÉTICOS
+          </span>
         </div>
 
         {/* Zone 2: 4 concise single-line nav links */}
@@ -683,6 +758,7 @@ export default function App() {
               nodes={nodes}
               pipes={NETWORK_PIPES}
               anomalies={anomalies}
+              visionAnalyses={visionAnalyses}
               scenarios={DIFFERENTIAL_SCENARIOS}
               selectedNodeId={selectedNodeId}
               onSelectNode={setSelectedNodeId}
@@ -720,6 +796,9 @@ export default function App() {
             <AquaBrainView
               diagnoses={diagnoses}
               anomalies={anomalies}
+              nodes={nodes}
+              pipes={NETWORK_PIPES}
+              visionAnalyses={visionAnalyses}
               selectedNodeId={selectedNodeId}
               onGenerateDiagnosis={handleGenerateDiagnosis}
               onDecideDiagnosis={handleDecideDiagnosis}
@@ -731,6 +810,10 @@ export default function App() {
             <WorkOrdersView
               workOrders={workOrders}
               onUpdateOrder={handleUpdateWorkOrder}
+              onAssignOrder={handleAssignOrder}
+              onToggleChecklist={handleToggleChecklist}
+              onUploadEvidence={handleUploadEvidence}
+              onDownloadDossier={handleDownloadDossier}
               onNavigateToLedger={() => setActiveView('ledger')}
             />
           )}
@@ -748,6 +831,7 @@ export default function App() {
               onCreateOfflineReport={handleCreateOfflineReport}
               onSyncOfflineReports={handleSyncOfflineReports}
               providerStatus={providerStatus}
+              onRefreshState={hydrateState}
             />
           )}
         </main>
@@ -755,3 +839,7 @@ export default function App() {
     </div>
   );
 }
+
+
+
+

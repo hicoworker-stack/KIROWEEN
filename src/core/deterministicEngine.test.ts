@@ -166,3 +166,41 @@ test('minor chlorine drift classifies as quality_drift rather than contamination
   assert.equal(driftAnomaly.category, 'quality_drift');
 });
 
+
+// REQ-DET-04: arbitraje leak vs calidad
+function troncalReading(over: Record<string, number>) {
+  const node = createBaselineNodes().find((n) => n.id === 'N-TRON-04')!;
+  const anomaly = evaluateTelemetryReading(
+    { ...node.current, id: 'ARB', timestamp: new Date().toISOString(), flowLs: 29, ...over },
+    node
+  );
+  return anomaly;
+}
+
+test('small leak + chlorine drift stays leak, drift kept as secondary evidence (REQ-DET-04)', () => {
+  const a = troncalReading({ pressureBar: 3.5, chlorineMgL: 0.28 });
+  assert.ok(a);
+  assert.equal(a.category, 'leak');
+  assert.ok(a.rulesTriggered.some((r) => r.ruleId === 'QUALITY_PARAMETER_ANOMALY'));
+});
+
+test('small leak is not hidden by contamination severity floor from chlorine/pH only (REQ-DET-04)', () => {
+  const a = troncalReading({ pressureBar: 3.5, chlorineMgL: 0.15, ph: 8.6 });
+  assert.ok(a);
+  assert.equal(a.category, 'leak');
+});
+
+test('leak with high turbidity escalates to contamination (ingress) but keeps leak rule (REQ-DET-04)', () => {
+  const a = troncalReading({ pressureBar: 3.4, turbidityNtu: 5 });
+  assert.ok(a);
+  assert.equal(a.category, 'contamination');
+  assert.ok(a.rulesTriggered.some((r) => r.ruleId === 'PRESSURE_DROP_LEAK'));
+});
+
+test('quality drift without pressure drop never creates a leak (REQ-DET-04)', () => {
+  const a = troncalReading({ pressureBar: 4.45, chlorineMgL: 0.24 });
+  assert.ok(a);
+  assert.equal(a.category, 'quality_drift');
+  assert.ok(!a.rulesTriggered.some((r) => r.ruleId === 'PRESSURE_DROP_LEAK'));
+});
+

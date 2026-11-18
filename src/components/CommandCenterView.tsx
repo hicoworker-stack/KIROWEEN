@@ -7,13 +7,17 @@ import {
   PipeSegment,
   ScenarioDefinition,
   ScenarioId,
+  VisionAnalysisResult,
 } from '../core/types';
 import { NetworkMap } from './NetworkMap';
+import { ForensicsPanel } from './EvidencePanels';
+import { localizeLeak } from '../core/leakForensics';
 
 interface CommandCenterViewProps {
   nodes: NetworkNode[];
   pipes: PipeSegment[];
   anomalies: AnomalyEvent[];
+  visionAnalyses?: VisionAnalysisResult[];
   scenarios: ScenarioDefinition[];
   selectedNodeId: string;
   onSelectNode: (nodeId: string) => void;
@@ -27,6 +31,7 @@ export const CommandCenterView: React.FC<CommandCenterViewProps> = ({
   nodes,
   pipes,
   anomalies,
+  visionAnalyses = [],
   scenarios,
   selectedNodeId,
   onSelectNode,
@@ -41,6 +46,10 @@ export const CommandCenterView: React.FC<CommandCenterViewProps> = ({
   const activeAnomalies = anomalies.filter((a) => a.status === 'active');
   const resolvedAnomalies = anomalies.filter((a) => a.status === 'resolved');
   const hydraulics = analyzeNetworkHydraulics(nodes, pipes, anomalies);
+  const hasActiveLeak = activeAnomalies.some((a) => a.category === 'leak' || a.category === 'contamination');
+  const forensics = hasActiveLeak
+    ? localizeLeak(nodes, pipes, { photoNodeIds: visionAnalyses.map((v) => v.nodeId) })
+    : null;
   const selectedPropagatedRisk = hydraulics.propagatedByNode[selectedNode.id];
   const selectedMassBalance = hydraulics.massBalances.find((m) => m.nodeId === selectedNode.id);
 
@@ -120,6 +129,8 @@ export const CommandCenterView: React.FC<CommandCenterViewProps> = ({
           ))}
         </div>
       </section>
+
+      {forensics && forensics.detected && <ForensicsPanel report={forensics} nodes={nodes} />}
 
       {/* 4-column Telemetry KPI Strip */}
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -412,3 +423,4 @@ export const CommandCenterView: React.FC<CommandCenterViewProps> = ({
     </div>
   );
 };
+

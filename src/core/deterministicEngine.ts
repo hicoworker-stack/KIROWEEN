@@ -209,10 +209,7 @@ export function evaluateTelemetryReading(
   }
 
   // Dominant category: prioritize physical implausibility / stuck sensor over derived hydraulic/quality hits
-  const primaryHit =
-    hits.find((h) => h.ruleId === 'SENSOR_PHYSICAL_IMPLAUSIBILITY') ??
-    hits.find((h) => h.ruleId === 'SENSOR_STUCK_AT_VALUE') ??
-    [...hits].sort((a, b) => b.severityScore - a.severityScore)[0];
+  const primaryHit = selectPrimaryHit(hits, reading);
 
   const priority = computeRiskPriorityScore({
     category: primaryHit.category,
@@ -244,6 +241,32 @@ export function evaluateTelemetryReading(
     scenarioId: scenarioMap[primaryHit.category],
     synthetic: reading.synthetic,
   };
+}
+
+/**
+ * Arbitraje de categoría dominante (REQ-DET-04).
+ * 1. Fallas de sensor siempre dominan (la lectura no es confiable).
+ * 2. Fuga confirmada por presión + anomalía de calidad:
+ *    - turbidez > 4 NTU: domina contaminación (hipótesis de intrusión por baja presión); la fuga se conserva como evidencia.
+ *    - solo cloro/pH: domina la fuga; la deriva queda como evidencia secundaria.
+ *    Así el piso de severidad de calidad (58) no oculta fugas pequeñas.
+ * 3. En el resto domina la mayor severidad.
+ */
+export function selectPrimaryHit(
+  hits: DeterministicRuleHit[],
+  reading: Pick<TelemetryReading, 'turbidityNtu'>
+): DeterministicRuleHit {
+  const sensor =
+    hits.find((h) => h.ruleId === 'SENSOR_PHYSICAL_IMPLAUSIBILITY') ??
+    hits.find((h) => h.ruleId === 'SENSOR_STUCK_AT_VALUE');
+  if (sensor) return sensor;
+
+  const leak = hits.find((h) => h.ruleId === 'PRESSURE_DROP_LEAK');
+  const quality = hits.find((h) => h.ruleId === 'QUALITY_PARAMETER_ANOMALY');
+  if (leak && quality) {
+    return reading.turbidityNtu > 4.0 ? quality : leak;
+  }
+  return [...hits].sort((a, b) => b.severityScore - a.severityScore)[0];
 }
 
 export function computeRiskPriorityScore(input: {
@@ -379,3 +402,6 @@ export function parseCsvTelemetry(csvText: string): CsvParseResult {
     rowCount: lines.length - 1,
   };
 }
+
+
+

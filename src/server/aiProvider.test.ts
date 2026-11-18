@@ -53,3 +53,4 @@ test('provisional fallback builders mark enrichmentStatus pending without disgui
   assert.equal(diag.fallbackReason, 'timeout');
   assert.match(diag.providerUsed, /Timeout Gemini API/);
 });
+

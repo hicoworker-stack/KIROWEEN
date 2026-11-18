@@ -75,3 +75,4 @@ test('analyzeNetworkHydraulics propagates downstream risk and skips sensor_fault
   const faultSummary = analyzeNetworkHydraulics(nodes, NETWORK_PIPES, [faultAnom]);
   assert.equal(Object.keys(faultSummary.propagatedByNode).length, 0);
 });
+

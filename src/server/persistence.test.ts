@@ -79,3 +79,4 @@ test('loadPersistedState returns null safely on missing or corrupt file', () => 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
+

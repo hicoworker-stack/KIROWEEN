@@ -1,15 +1,53 @@
 import fs from 'fs';
 import path from 'path';
-import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 import {
   AIFallbackReason,
+  AnomalyCategory,
   AnomalyEvent,
   AquaBrainDiagnosis,
   NetworkNode,
   VisionAnalysisResult,
 } from '../core/types';
 
-export const DEFAULT_GEMINI_TIMEOUT_MS = 14000;
+export const DEFAULT_GEMINI_TIMEOUT_MS = 25000;
+export const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
+
+export function getGeminiModel(): string {
+  return process.env.GEMINI_MODEL?.trim() || DEFAULT_GEMINI_MODEL;
+}
+
+export interface GeminiHealth {
+  lastSuccessAt: string | null;
+  lastErrorAt: string | null;
+  lastError: string | null;
+}
+const geminiHealth: GeminiHealth = { lastSuccessAt: null, lastErrorAt: null, lastError: null };
+
+export function recordGeminiOutcome(err?: unknown): void {
+  if (err === undefined) {
+    geminiHealth.lastSuccessAt = new Date().toISOString();
+    return;
+  }
+  geminiHealth.lastErrorAt = new Date().toISOString();
+  geminiHealth.lastError = (err instanceof Error ? err.message : String(err)).slice(0, 240);
+}
+
+export function isRetryableGeminiError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /\b(429|500|502|503|504)\b|UNAVAILABLE|RESOURCE_EXHAUSTED|overloaded/i.test(msg);
+}
+
+/** Runs a Gemini call with one retry on transient errors (429/5xx). Timeouts are not retried. */
+export async function withGeminiRetry<T>(fn: () => Promise<T>, delayMs = 800): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (!isRetryableGeminiError(err)) throw err;
+    await new Promise((r) => setTimeout(r, delayMs));
+    return fn();
+  }
+}
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -101,18 +139,50 @@ function resolveLocalImageAsBase64(imageUrl: string): { base64: string; mimeType
 
 export function getProviderStatus() {
   const hasGemini = Boolean(getGeminiClient());
+  const model = getGeminiModel();
+  const verified = Boolean(geminiHealth.lastSuccessAt) && (!geminiHealth.lastErrorAt || geminiHealth.lastSuccessAt! >= geminiHealth.lastErrorAt);
   return {
-    aiProvider: hasGemini ? 'Gemini 4 Hydrogen (Live API)' : 'Adaptador de Respaldo Determinista',
+    aiProvider: hasGemini
+      ? `Gemini ${model} (clave configurada · ${verified ? 'verificado en vivo' : 'aún sin verificar'})`
+      : 'Adaptador de Respaldo Determinista (sin GEMINI_API_KEY)',
     aiMode: hasGemini ? ('gemini-live' as const) : ('fallback-adapter' as const),
+    geminiModel: model,
+    geminiHealth: { ...geminiHealth, verified },
+    // Honestidad: ninguno de estos es un servicio AWS real. Son adaptadores locales.
     awsAdapters: {
-      s3: 'Adaptador Demo Local (sin credenciales AWS)',
-      lambda: 'Ejecución Express Local (adaptador serverless)',
-      dynamodb: 'Estado en Memoria + IndexedDB Offline (sin AWS DynamoDB)',
-      bedrock: 'No configurado (usando capa de abstracción Gemini / Respaldo)',
+      s3: 'SIMULADO · almacenamiento local del servidor (sin AWS S3)',
+      lambda: 'SIMULADO · rutas Express locales (sin AWS Lambda)',
+      dynamodb: 'SIMULADO · archivo JSON local + IndexedDB offline (sin AWS DynamoDB)',
+      bedrock: 'NO CONFIGURADO · se usa Gemini o el adaptador determinista',
     },
   };
 }
 
+/** Probe real a Gemini con una llamada mínima. Nunca lanza: devuelve el resultado honesto. */
+export async function probeGemini(): Promise<{
+  configured: boolean;
+  ok: boolean;
+  model: string;
+  latencyMs?: number;
+  error?: string;
+}> {
+  const model = getGeminiModel();
+  const client = getGeminiClient();
+  if (!client) return { configured: false, ok: false, model, error: 'GEMINI_API_KEY ausente o con valor de ejemplo.' };
+  const t0 = Date.now();
+  try {
+    await withTimeout(
+      withGeminiRetry(() => client.models.generateContent({ model, contents: 'Responde solo: ok' })),
+      DEFAULT_GEMINI_TIMEOUT_MS,
+      'Gemini probe'
+    );
+    recordGeminiOutcome();
+    return { configured: true, ok: true, model, latencyMs: Date.now() - t0 };
+  } catch (err) {
+    recordGeminiOutcome(err);
+    return { configured: true, ok: false, model, latencyMs: Date.now() - t0, error: err instanceof Error ? err.message.slice(0, 240) : String(err) };
+  }
+}
 export async function analyzeVisionEvidence(
   input: VisionAnalyzeInput
 ): Promise<VisionAnalysisResult> {
@@ -143,8 +213,8 @@ Lecturas actuales (sintéticas): Presión=${input.node.current.pressureBar} bar 
 Anomalía determinista activa: ${input.activeAnomaly ? input.activeAnomaly.title : 'Ninguna activa actualmente'}.`;
 
       const response = await withTimeout(
-        client.models.generateContent({
-          model: 'gemini-4-hydrogen',
+        withGeminiRetry(() => client.models.generateContent({
+          model: getGeminiModel(),
           contents: {
             parts: [
               {
@@ -159,7 +229,6 @@ Anomalía determinista activa: ${input.activeAnomaly ? input.activeAnomaly.title
             ],
           },
           config: {
-            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
             systemInstruction:
               'Eres el módulo de visión artificial de Aqua Sentinel. Reglas estrictas: 1) Nunca inventes mediciones numéricas que no estén en el contexto. 2) Nunca confirmes contaminación química o bacteriológica únicamente por una fotografía. 3) Separa claramente hechos observables en la imagen, inferencias operativas al cruzar con sensores, y qué NO puede determinarse solo visualmente.',
             responseMimeType: 'application/json',
@@ -194,6 +263,11 @@ Anomalía determinista activa: ${input.activeAnomaly ? input.activeAnomaly.title
                 type: Type.STRING,
                 description: 'Nivel de confianza cualitativo calibrado (ej. Moderado-Alto 78%).',
               },
+              visualCategory: {
+                type: Type.STRING,
+                enum: ['leak', 'obstruction', 'contamination', 'sensor_fault', 'quality_drift', 'nominal', 'inconclusive'],
+                description: 'Categoría que la imagen respalda por sí sola. Usa inconclusive si no discrimina.',
+              },
             },
             required: [
               'observed',
@@ -205,10 +279,12 @@ Anomalía determinista activa: ${input.activeAnomaly ? input.activeAnomaly.title
             ],
           },
         },
-        }),
+        })),
         DEFAULT_GEMINI_TIMEOUT_MS,
         'Vision analyze'
       );
+
+      recordGeminiOutcome();
 
       const raw = (response.text ?? '{}').trim();
       const parsed = JSON.parse(raw) as {
@@ -218,6 +294,7 @@ Anomalía determinista activa: ${input.activeAnomaly ? input.activeAnomaly.title
         missingData: string[];
         sensorCorrelationSummary: string;
         confidenceLabel: string;
+        visualCategory?: string;
       };
 
       return {
@@ -226,7 +303,7 @@ Anomalía determinista activa: ${input.activeAnomaly ? input.activeAnomaly.title
         nodeId: input.node.id,
         imageUrl: input.imageUrl,
         imageTitle: input.imageTitle,
-        providerUsed: 'Gemini 4 Hydrogen (Multimodal)',
+        providerUsed: `Gemini ${getGeminiModel()} (Multimodal)`,
         providerMode: 'gemini-live',
         enrichmentStatus: 'live',
         observed: parsed.observed ?? [],
@@ -235,8 +312,10 @@ Anomalía determinista activa: ${input.activeAnomaly ? input.activeAnomaly.title
         missingData: parsed.missingData ?? [],
         sensorCorrelationSummary: parsed.sensorCorrelationSummary ?? '',
         confidenceLabel: parsed.confidenceLabel ?? 'Calibrada',
+        visualCategory: normalizeVisualCategory(parsed.visualCategory),
       };
     } catch (err) {
+      recordGeminiOutcome(err);
       const reason = classifyFallbackReason(err);
       console.warn('Gemini multimodal fallback triggered:', err instanceof Error ? err.message : err);
       return buildFallbackVisionAnalysis(input, timestamp, { reason });
@@ -248,7 +327,39 @@ Anomalía determinista activa: ${input.activeAnomaly ? input.activeAnomaly.title
   });
 }
 
+const DEMO_IMAGE_NOTE =
+  'Anotación predefinida de una imagen de demostración incluida en el repositorio; no es análisis de píxeles en vivo.';
+const NO_PIXEL_ANALYSIS_NOTE =
+  'El adaptador de respaldo no analiza el contenido de la imagen; solo la registra como evidencia. Requiere Gemini multimodal o inspección humana.';
+
+/** Solo las imágenes de demostración empaquetadas tienen anotación conocida. Las fotos del usuario nunca se "interpretan" sin visión real. */
+export function demoImageCategory(
+  input: Pick<VisionAnalyzeInput, 'imageUrl' | 'imageTitle'>
+): AnomalyCategory | null {
+  if (!input.imageUrl.startsWith('/src/assets/images/')) return null;
+  const url = input.imageUrl.toLowerCase();
+  if (url.includes('turbid')) return 'contamination';
+  if (url.includes('corrosion') || url.includes('valve')) return 'obstruction';
+  if (url.includes('leak')) return 'leak';
+  return null;
+}
+
 export function buildFallbackVisionAnalysis(
+  input: VisionAnalyzeInput,
+  timestamp: string = new Date().toISOString(),
+  options: { reason?: AIFallbackReason; provisional?: boolean; id?: string } = {}
+): VisionAnalysisResult {
+  const base = buildFallbackVisionAnalysisInner(input, timestamp, options);
+  const cat = demoImageCategory(input);
+  return cat
+    ? { ...base, observed: [`[${DEMO_IMAGE_NOTE}]`, ...base.observed], visualCategory: cat }
+    : {
+        ...base,
+        cannotDetermine: [NO_PIXEL_ANALYSIS_NOTE, ...base.cannotDetermine],
+        visualCategory: 'inconclusive',
+      };
+}
+function buildFallbackVisionAnalysisInner(
   input: VisionAnalyzeInput,
   timestamp: string = new Date().toISOString(),
   options: { reason?: AIFallbackReason; provisional?: boolean; id?: string } = {}
@@ -256,17 +367,10 @@ export function buildFallbackVisionAnalysis(
   const reason: AIFallbackReason = options.reason ?? 'missing_key';
   const provisional = Boolean(options.provisional);
   const providerUsed = formatFallbackProviderLabel('vision', reason, provisional);
-  const titleLower = input.imageTitle.toLowerCase();
-  const isLeak = titleLower.includes('fuga') || titleLower.includes('brida') || input.activeAnomaly?.category === 'leak';
-  const isTurbid =
-    titleLower.includes('turb') ||
-    titleLower.includes('sediment') ||
-    titleLower.includes('bocatoma') ||
-    input.activeAnomaly?.category === 'contamination';
-  const isCorrosion =
-    titleLower.includes('corros') ||
-    titleLower.includes('válvula') ||
-    input.activeAnomaly?.category === 'obstruction';
+  const demoCategory = demoImageCategory(input);
+  const isLeak = demoCategory === 'leak';
+  const isTurbid = demoCategory === 'contamination';
+  const isCorrosion = demoCategory === 'obstruction';
 
   if (isTurbid) {
     return {
@@ -429,15 +533,14 @@ export async function synthesizeDiagnosis(
   if (client) {
     try {
       const response = await withTimeout(
-        client.models.generateContent({
-          model: 'gemini-4-hydrogen',
+        withGeminiRetry(() => client.models.generateContent({
+          model: getGeminiModel(),
           contents: `Genera un diagnóstico operativo explicable para Aqua Brain en español.
 Nodo: ${input.node.name} (${input.node.id}), Sector: ${input.node.sector}, Población servida: ${input.node.populationServed} habitantes, Activo: ${input.node.assetCode} (${input.node.material}, ${input.node.diameterMm} mm).
 Prioridad determinista calculada: ${input.anomaly.priority.priority} (${input.anomaly.priority.totalScore}/100).
 Reglas deterministas disparadas:\n${rulesText}
 ${hydraulicText ? `Topología hidráulica:\n${hydraulicText}\n` : ''}Evidencia visual:\n${visionText}`,
           config: {
-            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
             systemInstruction:
               'Eres Aqua Brain, agente de razonamiento operativo hídrico. Nunca contradigas ni re-calcules los datos medidos; explica hipótesis, causas alternativas, incertidumbre calibrada, datos faltantes y pasos concretos de intervención en campo.',
             responseMimeType: 'application/json',
@@ -481,10 +584,12 @@ ${hydraulicText ? `Topología hidráulica:\n${hydraulicText}\n` : ''}Evidencia v
               ],
             },
           },
-        }),
+        })),
         DEFAULT_GEMINI_TIMEOUT_MS,
         'Diagnosis synthesis'
       );
+
+      recordGeminiOutcome();
 
       const parsed = JSON.parse((response.text ?? '{}').trim());
       return {
@@ -510,12 +615,13 @@ ${hydraulicText ? `Topología hidráulica:\n${hydraulicText}\n` : ''}Evidencia v
         requiredResources: parsed.requiredResources ?? [],
         interventionSteps: parsed.interventionSteps ?? [],
         operatorDecision: 'pending',
-        providerUsed: 'Gemini 4 Hydrogen (Razonamiento Operativo)',
+        providerUsed: `Gemini ${getGeminiModel()} (Razonamiento Operativo)`,
         providerMode: 'gemini-live',
         enrichmentStatus: 'live',
         visionAnalysisId: input.visionAnalysis?.id,
       };
     } catch (err) {
+      recordGeminiOutcome(err);
       const reason = classifyFallbackReason(err);
       console.warn('Gemini diagnosis fallback triggered:', err instanceof Error ? err.message : err);
       return buildFallbackDiagnosis(input, timestamp, { reason });
@@ -824,3 +930,13 @@ export function buildFallbackDiagnosis(
     visionAnalysisId: visionAnalysis?.id,
   };
 }
+
+
+
+const VISUAL_CATEGORIES = ['leak', 'obstruction', 'contamination', 'sensor_fault', 'quality_drift', 'nominal'] as const;
+
+export function normalizeVisualCategory(v: unknown): AnomalyCategory | 'inconclusive' {
+  return (VISUAL_CATEGORIES as readonly unknown[]).includes(v) ? (v as AnomalyCategory) : 'inconclusive';
+}
+
+

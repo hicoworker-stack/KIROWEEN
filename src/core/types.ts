@@ -162,6 +162,8 @@ export interface VisionAnalysisResult {
   missingData: string[];
   sensorCorrelationSummary: string;
   confidenceLabel: string;
+  /** Categoría que la imagen respalda por sí sola; 'inconclusive' si no discrimina. */
+  visualCategory?: AnomalyCategory | 'inconclusive';
 }
 
 export interface AlternativeHypothesis {
@@ -217,7 +219,28 @@ export interface SmartWorkOrder {
   status: WorkOrderStatus;
   closureNotes?: string;
   closureEvidenceLabel?: string;
+  /** M-10: checklist interactivo derivado de interventionSteps. */
+  checklist?: ChecklistItem[];
+  /** M-10: evidencia fotográfica de cierre (el archivo vive en el almacén de evidencias; aquí solo metadatos + SHA-256). */
+  closureEvidence?: ClosureEvidence;
   ledgerHash?: string;
+}
+
+export interface ChecklistItem {
+  id: string;
+  label: string;
+  done: boolean;
+  doneAt?: string;
+  doneBy?: string;
+}
+
+export interface ClosureEvidence {
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  sha256: string;
+  attachedAt: string;
+  attachedBy: string;
 }
 
 export interface TrustLedgerEntry {
@@ -233,6 +256,8 @@ export interface TrustLedgerEntry {
   evidenceHash: string;
   previousHash: string;
   hash: string;
+  /** Datos que respaldan evidenceHash (SHA-256 de su JSON). Permite verificar el contenido, no solo el resumen. */
+  evidenceData?: unknown;
 }
 
 export interface ChainVerificationResult {
@@ -273,3 +298,6 @@ export interface CsvParseResult {
   errors: string[];
   rowCount: number;
 }
+
+
+

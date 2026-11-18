@@ -94,3 +94,4 @@ export function savePersistedState(
   fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), 'utf8');
   fs.renameSync(tmpPath, filePath);
 }
+

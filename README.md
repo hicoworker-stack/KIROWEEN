@@ -44,3 +44,11 @@ npm start
 ## Variables de Entorno
 
 - `GEMINI_API_KEY` (opcional): Si estÃ¡ configurada en servidor, habilita anÃ¡lisis multimodal y razonamiento en vivo con `gemini-4-hydrogen`. Sin clave externa, la aplicaciÃ³n opera completamente mediante el adaptador de respaldo declarado explÃ­citamente en la interfaz.
+
+## M-10 y capacidades Frankenstein (Kiroween 2026)
+- **Demo reproducible sin servicios externos**: botón "Demostración Guiada" (`POST /api/demo/frankenstein`). Todas las lecturas son sintéticas y se rotulan como tales.
+- **Forense hidráulica**: balance de masa + presión + foto ? tramo sospechoso y pérdida estimada (L/s, m³/día).
+- **Concordancia multimodal**: sensores, foto y topología; el conflicto limita la confianza.
+- **Expediente verificable**: descárgalo desde una orden cerrada y valídalo offline con `npm run verify:dossier -- <archivo>`.
+- **Órdenes**: responsable, checklist y foto de cierre (SHA-256) obligatorios para cerrar.
+- **Limitaciones**: Gemini en vivo no se pudo validar sin clave (la sonda en Integraciones lo comprueba); los adaptadores AWS son simulados; la persistencia es un archivo local (usa `AQUA_STATE_PATH` y el snapshot exportable en entornos efímeros).

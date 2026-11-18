@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { TelemetryReading } from '../core/types';
 
-export type MetricKey = 'pressureBar' | 'flowLs' | 'turbidityNtu' | 'chlorineMgL';
+export type MetricKey = 'pressureBar' | 'flowLs' | 'turbidityNtu' | 'chlorineMgL' | 'levelPct' | 'ph';
 
 interface TimeSeriesChartProps {
   series: TelemetryReading[];
@@ -9,6 +9,8 @@ interface TimeSeriesChartProps {
   metric: MetricKey;
   label: string;
   unit: string;
+  /** Banda operativa aceptable (p. ej. pH 6.5–8.5). Se dibuja como referencia, no como alarma. */
+  normalRange?: { min: number; max: number; label: string };
 }
 
 export const TimeSeriesChart: React.FC<TimeSeriesChartProps> = ({
@@ -17,6 +19,7 @@ export const TimeSeriesChart: React.FC<TimeSeriesChartProps> = ({
   metric,
   label,
   unit,
+  normalRange,
 }) => {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
 
@@ -38,7 +41,7 @@ export const TimeSeriesChart: React.FC<TimeSeriesChartProps> = ({
   const plotH = height - padTop - padBottom;
 
   const values = series.map((r) => r[metric]);
-  const allVals = [...values, baselineValue];
+  const allVals = [...values, baselineValue, ...(normalRange ? [normalRange.min, normalRange.max] : [])];
   let minVal = Math.min(...allVals);
   let maxVal = Math.max(...allVals);
   if (Math.abs(maxVal - minVal) < 0.4) {
@@ -97,6 +100,8 @@ export const TimeSeriesChart: React.FC<TimeSeriesChartProps> = ({
 
       <svg
         viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label={`${label}: ${series.length} lecturas sintéticas, último valor ${series[series.length - 1][metric].toFixed(2)} ${unit}, línea base ${baselineValue} ${unit}`}
         className="w-full h-auto block cursor-crosshair"
         onMouseLeave={() => setHoverIdx(null)}
       >
@@ -127,6 +132,22 @@ export const TimeSeriesChart: React.FC<TimeSeriesChartProps> = ({
             </g>
           );
         })}
+
+        {normalRange && (
+          <g>
+            <rect
+              x={padLeft}
+              y={yAt(normalRange.max)}
+              width={plotW}
+              height={Math.max(0, yAt(normalRange.min) - yAt(normalRange.max))}
+              fill="#10B981"
+              fillOpacity="0.07"
+            />
+            <text x={width - padRight - 4} y={yAt(normalRange.max) + 11} textAnchor="end" fill="#34D399" fontSize="10" fontFamily="JetBrains Mono, monospace">
+              {normalRange.label}
+            </text>
+          </g>
+        )}
 
         {/* Historical baseline dashed line */}
         <line
@@ -222,3 +243,4 @@ export const TimeSeriesChart: React.FC<TimeSeriesChartProps> = ({
     </div>
   );
 };
+

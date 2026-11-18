@@ -74,3 +74,4 @@ export async function listOfflineReports(): Promise<OfflineReportRecord[]> {
 export async function updateOfflineReport(record: OfflineReportRecord): Promise<void> {
   return saveOfflineReport(record);
 }
+

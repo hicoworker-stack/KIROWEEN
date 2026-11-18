@@ -61,3 +61,23 @@ test('verifyLedgerChain detects tampering in any historical block', async () => 
   assert.equal(verification.valid, false);
   assert.equal(verification.brokenIndex, 0);
 });
+
+test('tampering with attached evidenceData is detected even if summary and hashes are untouched (REQ-LED-02)', async () => {
+  let chain: TrustLedgerEntry[] = [];
+  chain = await appendLedgerEntry(chain, {
+    action: 'CLOSURE_EVIDENCE_ATTACHED',
+    actor: 'Ana',
+    assetId: 'N-TRON-04',
+    evidenceSummary: 'foto',
+    previousState: 'a',
+    newState: 'b',
+    evidenceData: { workOrderId: 'OT-1', sha256: 'aaaa' },
+  });
+  assert.equal((await verifyLedgerChain(chain)).valid, true);
+  const tampered = JSON.parse(JSON.stringify(chain)) as TrustLedgerEntry[];
+  (tampered[0].evidenceData as { sha256: string }).sha256 = 'bbbb';
+  const result = await verifyLedgerChain(tampered);
+  assert.equal(result.valid, false);
+  assert.equal(result.brokenIndex, 0);
+});
+

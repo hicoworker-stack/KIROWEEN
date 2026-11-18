@@ -66,6 +66,7 @@ export async function appendLedgerEntry(
   const fullEntry: TrustLedgerEntry = {
     ...unsignedEntry,
     hash,
+    ...(payload.evidenceData !== undefined ? { evidenceData: payload.evidenceData } : {}),
   };
 
   return [...chain, fullEntry];
@@ -99,8 +100,20 @@ export async function verifyLedgerChain(
       };
     }
 
-    const { hash, ...unsigned } = entry;
+    const { hash, evidenceData, ...unsigned } = entry;
     const recomputed = await sha256Hex(canonicalLedgerPayload(unsigned));
+    if (evidenceData !== undefined) {
+      const dataHash = await sha256Hex(JSON.stringify(evidenceData));
+      if (dataHash !== entry.evidenceHash) {
+        return {
+          valid: false,
+          checkedCount: i + 1,
+          brokenIndex: i,
+          reason: `Evidencia adjunta alterada en bloque #${i} (${entry.id}): su SHA-256 no coincide con evidenceHash.`,
+          verifiedAt,
+        };
+      }
+    }
     if (recomputed !== hash) {
       return {
         valid: false,
@@ -119,3 +132,5 @@ export async function verifyLedgerChain(
     verifiedAt,
   };
 }
+
+

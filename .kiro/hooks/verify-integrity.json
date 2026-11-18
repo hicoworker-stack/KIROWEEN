@@ -11,7 +11,7 @@
   "checks": [
     {
       "id": "unit-tests-all",
-      "command": "npx --yes tsx --test src/core/deterministicEngine.test.ts src/core/cryptoLedger.test.ts src/core/graphHydrology.test.ts src/server/persistence.test.ts src/server/aiProvider.test.ts",
+      "command": "npx --yes tsx --test src/core/cryptoLedger.test.ts src/core/deterministicEngine.test.ts src/core/evidenceConcordance.test.ts src/core/graphHydrology.test.ts src/core/leakForensics.test.ts src/core/workOrders.test.ts src/server/aiProvider.test.ts src/server/e2e.test.ts src/server/evidenceStore.test.ts src/server/persistence.test.ts src/server/snapshot.test.ts",
       "required": true
     },
     {
@@ -26,3 +26,4 @@
     }
   ]
 }
+

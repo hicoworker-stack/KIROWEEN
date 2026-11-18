@@ -1,10 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Check, Edit3, XCircle, Cpu, ArrowRight } from 'lucide-react';
-import { AnomalyEvent, AquaBrainDiagnosis } from '../core/types';
+import { AnomalyEvent, AquaBrainDiagnosis, NetworkNode, PipeSegment, VisionAnalysisResult } from '../core/types';
+import { calibratedConfidence, evaluateConcordance } from '../core/evidenceConcordance';
+import { localizeLeak } from '../core/leakForensics';
+import { ConcordancePanel } from './EvidencePanels';
 
 interface AquaBrainViewProps {
   diagnoses: AquaBrainDiagnosis[];
   anomalies: AnomalyEvent[];
+  nodes?: NetworkNode[];
+  pipes?: PipeSegment[];
+  visionAnalyses?: VisionAnalysisResult[];
   selectedNodeId: string;
   onGenerateDiagnosis: (anomalyId: string) => Promise<void>;
   onDecideDiagnosis: (
@@ -22,6 +28,9 @@ interface AquaBrainViewProps {
 export const AquaBrainView: React.FC<AquaBrainViewProps> = ({
   diagnoses,
   anomalies,
+  nodes = [],
+  pipes = [],
+  visionAnalyses = [],
   selectedNodeId,
   onGenerateDiagnosis,
   onDecideDiagnosis,
@@ -60,6 +69,19 @@ export const AquaBrainView: React.FC<AquaBrainViewProps> = ({
     diagnoses.find((d) => d.nodeId === selectedNodeId) ??
     diagnoses[0] ??
     null;
+
+  const activeAnomaly = activeDiagnosis ? anomalies.find((a) => a.id === activeDiagnosis.anomalyId) ?? null : null;
+  const activeVision = activeDiagnosis
+    ? visionAnalyses.find((v) => v.id === activeDiagnosis.visionAnalysisId) ?? visionAnalyses.find((v) => v.nodeId === activeDiagnosis.nodeId) ?? null
+    : null;
+  const concordance = activeAnomaly
+    ? evaluateConcordance({
+        anomaly: activeAnomaly,
+        vision: activeVision,
+        forensics: activeAnomaly.category === 'leak' && nodes.length > 0 ? localizeLeak(nodes, pipes, { photoNodeIds: activeVision ? [activeVision.nodeId] : [] }) : null,
+      })
+    : null;
+  const calibratedPct = activeDiagnosis && concordance ? calibratedConfidence(activeDiagnosis.confidencePct, concordance) : activeDiagnosis?.confidencePct ?? 0;
 
   const pendingAnomaliesWithoutDiagnosis = anomalies.filter(
     (a) => a.status === 'active' && !diagnoses.some((d) => d.anomalyId === a.id)
@@ -199,10 +221,14 @@ export const AquaBrainView: React.FC<AquaBrainViewProps> = ({
                   Prioridad {activeDiagnosis.priority} ({activeDiagnosis.priorityScore}/100)
                 </div>
                 <div className="text-xs text-cyan-300 mt-0.5">
-                  Confianza calibrada: {activeDiagnosis.confidencePct}%
+                  Confianza calibrada: {calibratedPct}%
                 </div>
               </div>
             </div>
+
+            {concordance && (
+              <ConcordancePanel report={concordance} rawConfidencePct={activeDiagnosis.confidencePct} calibratedPct={calibratedPct} />
+            )}
 
             {/* Primary Hypothesis & Impact */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -402,3 +428,4 @@ export const AquaBrainView: React.FC<AquaBrainViewProps> = ({
     </div>
   );
 };
+

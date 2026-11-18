@@ -1,3 +1,4 @@
+import { OperationsHealthPanel } from './OperationsHealthPanel';
 import React, { useEffect, useState } from 'react';
 import { WifiOff, Wifi, RefreshCw, Database, Cloud, FileCode2 } from 'lucide-react';
 import { buildOfflineIdempotencyKey } from '../core/offlineStore';
@@ -12,6 +13,7 @@ interface IntegrationsAndOfflineViewProps {
   offlineReports: OfflineReportRecord[];
   onCreateOfflineReport: (record: OfflineReportRecord) => Promise<void>;
   onSyncOfflineReports: () => Promise<void>;
+  onRefreshState?: () => void;
   providerStatus: {
     aiProvider: string;
     aiMode: 'gemini-live' | 'fallback-adapter';
@@ -35,6 +37,7 @@ export const IntegrationsAndOfflineView: React.FC<IntegrationsAndOfflineViewProp
   onCreateOfflineReport,
   onSyncOfflineReports,
   providerStatus,
+  onRefreshState,
 }) => {
   const [nodeId, setNodeId] = useState(nodes[0]?.id ?? 'N-TOMA-01');
   const [category, setCategory] = useState<AnomalyCategory>('leak');
@@ -295,6 +298,8 @@ export const IntegrationsAndOfflineView: React.FC<IntegrationsAndOfflineViewProp
         </div>
       </section>
 
+      <OperationsHealthPanel onStateChanged={onRefreshState ?? (() => {})} />
+
       {/* AI Provider & AWS Adapter Transparency + Kiro Spec Explorer */}
       <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-5 bg-[#0A1D29] border border-[#18364A] rounded-xl p-5 space-y-4">
@@ -316,7 +321,7 @@ export const IntegrationsAndOfflineView: React.FC<IntegrationsAndOfflineViewProp
             </div>
             {Object.entries(providerStatus.awsAdapters).map(([key, val]) => (
               <div key={key} className="p-3 rounded-lg bg-[#06131C] border border-[#18364A]">
-                <div className="text-slate-400 uppercase font-mono">AWS {key}</div>
+                <div className="text-slate-400 uppercase font-mono">AWS {key} (no es un servicio AWS real)</div>
                 <div className="text-slate-200 mt-0.5">{val}</div>
               </div>
             ))}
@@ -363,3 +368,4 @@ export const IntegrationsAndOfflineView: React.FC<IntegrationsAndOfflineViewProp
     </div>
   );
 };
+

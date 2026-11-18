@@ -15,11 +15,19 @@ interface SensorIntelligenceViewProps {
   onToggleSimulator: () => void;
 }
 
-const METRIC_OPTIONS: Array<{ key: MetricKey; label: string; unit: string }> = [
+const METRIC_OPTIONS: Array<{
+  key: MetricKey;
+  label: string;
+  unit: string;
+  normalRange?: { min: number; max: number; label: string };
+  tankOnly?: boolean;
+}> = [
   { key: 'pressureBar', label: 'Presión Hidráulica', unit: 'bar' },
   { key: 'flowLs', label: 'Caudal Volumétrico', unit: 'L/s' },
   { key: 'turbidityNtu', label: 'Turbidez del Agua', unit: 'NTU' },
-  { key: 'chlorineMgL', label: 'Cloro Libre Residual', unit: 'mg/L' },
+  { key: 'chlorineMgL', label: 'Cloro Libre Residual', unit: 'mg/L', normalRange: { min: 0.3, max: 2.5, label: 'Rango 0.3–2.5 mg/L' } },
+  { key: 'levelPct', label: 'Nivel de Tanque', unit: '%', tankOnly: true },
+  { key: 'ph', label: 'pH', unit: 'pH', normalRange: { min: 6.5, max: 8.5, label: 'Rango 6.5–8.5' } },
 ];
 
 export const SensorIntelligenceView: React.FC<SensorIntelligenceViewProps> = ({
@@ -41,6 +49,8 @@ export const SensorIntelligenceView: React.FC<SensorIntelligenceViewProps> = ({
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? nodes[0];
   const series = seriesByNode[selectedNode.id] ?? [];
   const metricMeta = METRIC_OPTIONS.find((m) => m.key === selectedMetric)!;
+  const hasLevelSensor = selectedNode.baseline.levelPct > 0;
+  const metricUnavailable = metricMeta.tankOnly === true && !hasLevelSensor;
   const nodeAnomalies = anomalies.filter((a) => a.nodeId === selectedNode.id);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -131,6 +141,7 @@ export const SensorIntelligenceView: React.FC<SensorIntelligenceViewProps> = ({
               <button
                 key={opt.key}
                 type="button"
+                aria-pressed={selectedMetric === opt.key}
                 onClick={() => setSelectedMetric(opt.key)}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                   selectedMetric === opt.key
@@ -148,13 +159,20 @@ export const SensorIntelligenceView: React.FC<SensorIntelligenceViewProps> = ({
           </span>
         </div>
 
-        <TimeSeriesChart
-          series={series}
-          baselineValue={selectedNode.baseline[selectedMetric]}
-          metric={selectedMetric}
-          label={`${metricMeta.label} — ${selectedNode.name}`}
-          unit={metricMeta.unit}
-        />
+        {metricUnavailable ? (
+          <div className="h-56 flex items-center justify-center text-center px-6 border border-dashed border-[#18364A] rounded-lg bg-[#071824] text-xs text-slate-400">
+            {selectedNode.name} no tiene sensor de nivel. Selecciona un tanque, una bocatoma o la planta para ver esta métrica.
+          </div>
+        ) : (
+          <TimeSeriesChart
+            series={series}
+            baselineValue={selectedNode.baseline[selectedMetric]}
+            metric={selectedMetric}
+            label={`${metricMeta.label} — ${selectedNode.name}`}
+            unit={metricMeta.unit}
+            normalRange={metricMeta.normalRange}
+          />
+        )}
       </section>
 
       {/* Split: Deterministic Anomaly Explanation + CSV Ingestion */}
@@ -270,3 +288,4 @@ export const SensorIntelligenceView: React.FC<SensorIntelligenceViewProps> = ({
     </div>
   );
 };
+

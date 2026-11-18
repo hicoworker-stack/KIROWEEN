@@ -10,8 +10,9 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx --test src/core/deterministicEngine.test.ts src/core/cryptoLedger.test.ts src/core/graphHydrology.test.ts src/server/persistence.test.ts src/server/aiProvider.test.ts",
-    "verify:kiro": "tsx scripts/verifyKiro.ts"
+    "test": "tsx --test src/core/cryptoLedger.test.ts src/core/deterministicEngine.test.ts src/core/evidenceConcordance.test.ts src/core/graphHydrology.test.ts src/core/leakForensics.test.ts src/core/workOrders.test.ts src/server/aiProvider.test.ts src/server/e2e.test.ts src/server/evidenceStore.test.ts src/server/persistence.test.ts src/server/snapshot.test.ts",
+    "verify:kiro": "tsx scripts/verifyKiro.ts",
+    "verify:dossier": "tsx scripts/verifyDossier.ts"
   },
   "dependencies": {
     "@google/genai": "^3.6.0",
@@ -30,10 +31,12 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "autoprefixer": "^10.4.21",
-    "esbuild": "^0.25.0",
+    "esbuild": "^0.28.0",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2",
     "@types/express": "^4.17.21"
   }
 }
+
+
