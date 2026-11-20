@@ -3,7 +3,7 @@
 Cada requisito nace de un hallazgo de la auditoría adversarial. Todo dato de la red *San Cristóbal de las Aguas* es sintético. Las integraciones con Gemini real no están validadas con credenciales reales.
 
 ## 1. Seguridad y resiliencia
-- **REQ-SEC-01**: `reset`, `demo` e `import` exigen cabecera `X-Aqua-Confirm` con el nombre de la operación (anti-CSRF) y, si existe `AQUA_ADMIN_TOKEN`, `X-Admin-Token`. Sin token solo se permiten con `AQUA_ALLOW_DESTRUCTIVE=1` o fuera de producción por loopback; si no, 403. El estado anterior se archiva en `backups/` y su cabeza se registra en el nuevo génesis.
+- **REQ-SEC-01**: reset, demo e import exigen ADMIN, confirmación explícita (`X-Aqua-Confirm`) y un token de operación de un solo uso obtenido reautenticando con la contraseña; el estado anterior se archiva en `backups/` y su cabeza se registra en el nuevo génesis. Sustituye al antiguo token compartido `AQUA_ADMIN_TOKEN` y a `AQUA_ALLOW_DESTRUCTIVE` (eliminados en la Fase 2; ver la especificación 08, REQ-SEC-05).
 - **REQ-SEC-02**: ninguna ruta de imagen proveniente de la petición se lee del disco sin validar; las imágenes subidas se validan por firma real.
 - **REQ-RES-01**: validación estricta de telemetría (números finitos, rangos estructurales, fechas, nodos conocidos, límite de filas CSV).
 - **REQ-RES-02**: un estado persistido malformado se repara o descarta sin dejar la interfaz en blanco.
@@ -39,7 +39,7 @@ Cada requisito nace de un hallazgo de la auditoría adversarial. Todo dato de la
 
 | Requisito | Implementación | Prueba / Verificación |
 | --- | --- | --- |
-| `REQ-SEC-01` | `src/server/http.ts`, `src/server/app.ts`, `src/client/adminFetch.ts` | `src/server/http.test.ts`, `src/server/e2e.test.ts` |
+| `REQ-SEC-01` | `src/server/authApi.ts`, `src/server/app.ts`, `src/client/adminFetch.ts` | `src/server/security.destructive.test.ts`, `src/server/e2e.test.ts` |
 | `REQ-SEC-02` | `src/server/aiProvider.ts`, `src/server/evidenceStore.ts` | `src/server/aiProvider.test.ts`, `src/server/e2e.test.ts` |
 | `REQ-RES-01` | `src/core/telemetryValidation.ts`, `src/core/deterministicEngine.ts` | `src/core/telemetryValidation.test.ts`, `src/server/e2e.test.ts` |
 | `REQ-RES-02` | `src/core/stateRepair.ts`, `src/server/persistence.ts` | `src/core/stateRepair.test.ts`, `src/server/persistence.test.ts` |

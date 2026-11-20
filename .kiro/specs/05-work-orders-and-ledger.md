@@ -16,7 +16,7 @@
 - Al sincronizar, cada reporte no duplicado alimenta anomalías, diagnósticos preliminares, estado del nodo y Trust Ledger.
 
 ## 4. Requisitos Formales y Trazabilidad
-- **REQ-WO-01**: Gestionar el ciclo `Abierta → En Progreso → Cerrada`, restaurando la línea base del nodo al cerrar y registrando cada transición en el Trust Ledger.
+- **REQ-WO-01**: Gestionar el ciclo `Abierta → En Progreso → Cerrada` registrando cada transición en el Trust Ledger. Al cerrar, el servidor deja el nodo en estado estable con una lectura `restored` que NO es una medición (defecto F2 de la auditoría, pendiente de corregir en el servidor); la interfaz lo muestra como "pendiente de verificación" hasta que existan mediciones posteriores (ver REQ-UX-03).
 - **REQ-LED-01**: Ejecutar verificación dual independiente en cliente (Web Crypto) y servidor (`/api/ledger/verify`), alertando alteraciones históricas o discrepancias.
 - **REQ-OFF-01**: Escuchar eventos reales de conectividad (`online` / `offline`), almacenar reportes en IndexedDB y sincronizarlos idempotente y efectivamente hacia anomalías y diagnósticos en el servidor.
 

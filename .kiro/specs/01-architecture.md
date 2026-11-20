@@ -9,7 +9,7 @@ Integrar seis disciplinas operativas tradicionalmente aisladas en un único cicl
 2. **Visión Artificial Multimodal** (`src/server/aiProvider.ts`): Inspección de fotografías de campo mediante `@google/genai` con separación estricta entre observación visual, inferencia operativa e incertidumbre.
 3. **Geointeligencia Hidráulica** (`src/core/networkData.ts`, `src/core/graphHydrology.ts`, `src/components/NetworkMap.tsx`): Topología de red comunitaria (tomas, tanques, bombeo, válvulas, nodos de distribución), balance de masa y propagación aguas abajo.
 4. **Motor Determinista Independiente** (`src/core/deterministicEngine.ts`): Reglas físicas, detección de sensor congelado y puntuación de riesgos sin dependencia de LLM.
-5. **Aqua Brain (Agente Híbrido)** (`src/components/AquaBrainView.tsx`, `server.ts`): Correlación multi-evidencia, enriquecimiento asíncrono por SSE, hipótesis alternativas y aprobación humana.
+5. **Aqua Brain (Agente Híbrido)** (`src/components/IncidentsView.tsx`, `server.ts`): Correlación multi-evidencia, enriquecimiento asíncrono por SSE, hipótesis alternativas y aprobación humana.
 6. **Trust Ledger Criptográfico** (`src/core/cryptoLedger.ts`, `src/server/persistence.ts`): Registro append-only con encadenamiento SHA-256 verificable, persistencia en disco y resiliencia offline en IndexedDB (`src/core/offlineStore.ts`).
 
 ## 3. Requisitos Formales y Trazabilidad

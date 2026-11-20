@@ -67,7 +67,14 @@ import { DEFAULT_STATE_PATH, loadPersistedState } from './persistence';
 import { defaultEvidenceDir, readEvidence, saveEvidence } from './evidenceStore';
 import { buildSnapshot, describePersistence, restoreEvidence, validateSnapshot } from './snapshot';
 import { Mutex, PersistenceTracker } from './runtime';
-import { destructiveGuard, errorMiddleware, HttpError, installAsyncSafety } from './http';
+import { errorMiddleware, HttpError, installAsyncSafety } from './http';
+import { actorLabel, bigBody, destructiveGuard, installSecurityPipeline, limitUser, SecurityDeps } from './authApi';
+import { AuditLog } from './auditLog';
+import { AUTHENTICATED_ONLY, can, needs } from './authz';
+import { AuthStore, AuthStoreOptions, DEFAULT_ABSOLUTE_MS, DEFAULT_IDLE_MS } from './authStore';
+import { loadSecurityConfig, SecurityConfig } from './netSecurity';
+import { OperationTokens } from './operationTokens';
+import { RateLimiter, parseRateLimitEnv, LimitSpec, BucketName } from './rateLimit';
 import {
   checkAnchorAgainstLedger,
   issueAnchor,
@@ -106,6 +113,19 @@ export interface IntegrityStatus {
 export interface AppOptions {
   statePath?: string;
   evidenceDir?: string;
+  /** Ubicación de auth.json y audit.jsonl (por defecto junto al estado; NUNCA dentro del estado que reset/import reemplazan). */
+  authPath?: string;
+  auditPath?: string;
+  /** Entorno de configuración (por defecto process.env). */
+  env?: Record<string, string | undefined>;
+  security?: SecurityConfig;
+  rateLimits?: Partial<Record<BucketName, Partial<LimitSpec>>>;
+  /** Reloj inyectable (pruebas de caducidad de sesiones). */
+  now?: () => number;
+  authStoreOptions?: AuthStoreOptions;
+  auditAppendLine?: (file: string, line: string) => void;
+  /** Habilita el asistente de primer administrador por HTTP. Por defecto: solo fuera de producción o con AQUA_SETUP_ENABLED=1. */
+  setupEnabled?: boolean;
 }
 
 export interface AppHandle {
@@ -113,6 +133,10 @@ export interface AppHandle {
   shutdown(): void;
   /** Solo para pruebas y diagnóstico. */
   inspect(): { epoch: number; integrity: IntegrityStatus };
+  authStore: AuthStore;
+  audit: AuditLog;
+  /** Código de un solo uso para crear el primer administrador (null si ya existe uno o el asistente está deshabilitado). */
+  setupCode: { code: string; expiresAt: string } | null;
 }
 
 type LedgerPayload = Parameters<typeof appendLedgerEntry>[1];
@@ -121,7 +145,6 @@ const REQUIRED_CONSECUTIVE = 2;
 const MAX_SEEN_KEYS = 5000;
 const MAX_ANCHORS = 50;
 const REPORT_CATEGORIES: AnomalyCategory[] = ['leak', 'obstruction', 'sensor_fault', 'contamination', 'quality_drift'];
-const declaredActor = (name: string) => `${name} (declarado, sin autenticar)`;
 
 function healthFromCategory(category: AnomalyEvent['category']): NetworkNode['status'] {
   if (category === 'contamination' || category === 'leak') return 'critical';
@@ -138,19 +161,30 @@ function str(v: unknown, max: number): string | undefined {
 export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
   const statePath = options.statePath ?? DEFAULT_STATE_PATH;
   const evidenceDir = options.evidenceDir ?? defaultEvidenceDir(statePath);
+  const env = options.env ?? process.env;
   const app = express();
   app.disable('x-powered-by');
   installAsyncSafety(app);
-  app.use((_req, res, next) => {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    next();
-  });
-  app.use(express.json({ limit: '12mb' }));
 
   const mutex = new Mutex();
   const persistence = new PersistenceTracker(statePath);
-  const keys = loadOrCreateSealKeys({ dir: path.dirname(statePath), envPem: process.env.AQUA_SEAL_PRIVATE_KEY_PEM });
-  const trustSyntheticFlag = process.env.AQUA_FIELD_DATA === '1';
+  const keys = loadOrCreateSealKeys({ dir: path.dirname(statePath), envPem: env.AQUA_SEAL_PRIVATE_KEY_PEM });
+  const trustSyntheticFlag = env.AQUA_FIELD_DATA === '1';
+
+  // ───────────── Seguridad (Fase 2): usuarios, sesiones, auditoría, cupos ─────────────
+  // auth.json y audit.jsonl viven FUERA del estado de la red: reset, demo e import no pueden borrarlos.
+  const securityCfg = options.security ?? loadSecurityConfig(env);
+  const authDir = path.dirname(statePath);
+  const sessionIdleMs = Number(env.AQUA_SESSION_IDLE_MS) > 0 ? Number(env.AQUA_SESSION_IDLE_MS) : DEFAULT_IDLE_MS;
+  const sessionAbsoluteMs = Number(env.AQUA_SESSION_ABSOLUTE_MS) > 0 ? Number(env.AQUA_SESSION_ABSOLUTE_MS) : DEFAULT_ABSOLUTE_MS;
+  const authStore = AuthStore.open(options.authPath ?? path.join(authDir, 'auth.json'), { idleMs: sessionIdleMs, absoluteMs: sessionAbsoluteMs, now: options.now, ...options.authStoreOptions });
+  const audit = AuditLog.open(options.auditPath ?? path.join(authDir, 'audit.jsonl'), { keys, now: options.now, appendLine: options.auditAppendLine });
+  const limiter = new RateLimiter({ ...parseRateLimitEnv(env.AQUA_RATE_LIMITS), ...options.rateLimits }, options.now);
+  const opTokens = new OperationTokens(options.now);
+  const setupEnabled = options.setupEnabled ?? (!securityCfg.production || env.AQUA_SETUP_ENABLED === '1');
+  const security: SecurityDeps = { cfg: securityCfg, store: authStore, audit, limiter, opTokens, setupEnabled, sessionMaxAgeSec: Math.floor(sessionAbsoluteMs / 1000) };
+  installSecurityPipeline(app, security);
+  const setupCode = setupEnabled && !authStore.hasUsers() ? await authStore.issueSetupCode() : null;
 
   const ctx = {
     epoch: 1,
@@ -161,20 +195,47 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
 
   // ───────────── Estado inicial ─────────────
 
-  async function createInitialState(previous?: { height: number; headHash: string | null; archivedTo: string | null; anchor: SignedAnchor | null }): Promise<AppState> {
+  interface RequestedBy {
+    actor: string;
+    id: string;
+    username: string;
+    role: string;
+    authorizationSeq?: number;
+    auditHeadHash?: string;
+  }
+  const requestedByOf = (req: Request, res: Response): RequestedBy => ({
+    actor: actorLabel(req.auth!.user),
+    id: req.auth!.user.id,
+    username: req.auth!.user.username,
+    role: req.auth!.user.role,
+    authorizationSeq: res.locals.authorizationSeq as number | undefined,
+    auditHeadHash: res.locals.auditHeadHash as string | undefined,
+  });
+
+  async function createInitialState(
+    previous?: { height: number; headHash: string | null; archivedTo: string | null; anchor: SignedAnchor | null },
+    requestedBy?: RequestedBy
+  ): Promise<AppState> {
     const nodes = createBaselineNodes();
     const seriesByNode: Record<string, TelemetryReading[]> = {};
     for (const node of nodes) seriesByNode[node.id] = generateBaselineSeries(node, 14);
     const ledger = await appendLedgerEntry([], {
       action: 'NETWORK_INITIALIZED',
-      actor: 'Sistema Aqua Sentinel',
+      actor: requestedBy?.actor ?? 'Sistema Aqua Sentinel',
       assetId: 'RED-SAN-CRISTOBAL',
       evidenceSummary: previous
         ? `Red comunitaria sintética reiniciada (7 nodos). La cadena anterior (${previous.height} bloques) se archivó y su cabeza queda referenciada.`
         : 'Inicialización de red comunitaria sintética (7 nodos hidráulicos) con línea base nominal.',
       previousState: previous ? 'reinicio' : 'uninitialized',
       newState: 'nominal',
-      evidenceData: { nodeCount: nodes.length, synthetic: true, ...(previous ? { previousChain: previous } : {}) },
+      evidenceData: {
+        nodeCount: nodes.length,
+        synthetic: true,
+        ...(previous ? { previousChain: previous } : {}),
+        ...(requestedBy
+          ? { requestedBy: { id: requestedBy.id, username: requestedBy.username, role: requestedBy.role, authenticated: true }, auditAuthorizationSeq: requestedBy.authorizationSeq ?? null, auditHeadAtAuthorization: requestedBy.auditHeadHash ?? null }
+          : {}),
+      },
     });
     return {
       nodes,
@@ -296,6 +357,19 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
   const append = async (payload: LedgerPayload): Promise<TrustLedgerEntry> => {
     state.ledger = await appendLedgerEntry(state.ledger, payload);
     return state.ledger[state.ledger.length - 1];
+  };
+
+  /**
+   * REQ-AUD-03: el actor de una acción de usuario sale SIEMPRE de la sesión autenticada. El ledger guarda además el
+   * id, el usuario y el rol en evidenceData; cualquier nombre que envíe el cliente se guarda aparte, etiquetado como declarado.
+   */
+  const asUser = (req: Request, payload: Omit<LedgerPayload, 'actor'>): LedgerPayload => {
+    const u = req.auth!.user;
+    return {
+      ...payload,
+      actor: actorLabel(u),
+      evidenceData: { ...(payload.evidenceData as Record<string, unknown> | undefined), actorId: u.id, actorUsername: u.username, actorRole: u.role, actorAuthenticated: true },
+    } as LedgerPayload;
   };
 
   const pushAnchor = () => {
@@ -499,37 +573,76 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
 
   // ───────────── SSE, salud, estado ─────────────
 
-  app.get('/api/events', (req, res) => {
+  // ───────────── Flujo de eventos (SSE): exige sesión, está acotado y se cierra al revocarse la sesión ─────────────
+
+  const SSE_MAX_TOTAL = 200;
+  const SSE_MAX_PER_USER = 5;
+  const sseMeta = new Map<express.Response, { userId: string; idHash: string }>();
+  const closeStream = (res: express.Response) => {
+    sseClients.delete(res);
+    sseMeta.delete(res);
+    try {
+      res.end();
+    } catch {
+      /* ya cerrado */
+    }
+  };
+  authStore.onRevoked((ev) => {
+    for (const [res, m] of [...sseMeta]) if ((ev.userId && m.userId === ev.userId) || (ev.idHash && m.idHash === ev.idHash)) closeStream(res);
+  });
+
+  app.get('/api/events', needs('state:read'), (req, res) => {
+    const userId = req.auth!.user.id;
+    const mine = [...sseMeta.values()].filter((m) => m.userId === userId).length;
+    if (sseClients.size >= SSE_MAX_TOTAL || mine >= SSE_MAX_PER_USER) {
+      req.auditDenied = { reason: 'límite de conexiones de eventos' };
+      res.status(429).json({ error: 'Demasiadas conexiones de eventos abiertas.' });
+      return;
+    }
     res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders?.();
-    res.write(`event: connected\ndata: ${JSON.stringify({ ok: true })}\n\n`);
+    res.write('event: connected\ndata: ' + JSON.stringify({ ok: true }) + '\n\n');
     sseClients.add(res);
+    sseMeta.set(res, { userId, idHash: req.auth!.session.idHash });
     const keepAlive = setInterval(() => {
       try {
+        // Si la sesión caducó o se revocó (p. ej. por otro proceso), el flujo se cierra.
+        if (!authStore.isSessionValid(req.auth!.session.idHash)) return closeStream(res);
         res.write(': ping\n\n');
       } catch {
         clearInterval(keepAlive);
       }
-    }, 25000);
+    }, 15000);
+    keepAlive.unref?.();
     req.on('close', () => {
       clearInterval(keepAlive);
       sseClients.delete(res);
+      sseMeta.delete(res);
     });
   });
 
-  app.get('/api/health', (_req, res) => {
+  // Público: solo "vivo". El detalle (persistencia, integridad, política de seguridad) exige sesión con permiso.
+  app.get('/api/health', (req, res) => {
+    if (!req.auth || !can(req.auth.user.role, 'health:detail')) {
+      res.json({ ok: true, authRequired: true });
+      return;
+    }
     res.json({
       ok: true,
+      authRequired: true,
       ...getProviderStatus(),
       persistence: { ...describePersistence(statePath), ...persistence.snapshot() },
       integrity: ctx.integrity,
       seal: { keyId: keys.keyId, keyPersistence: keys.persistence },
-      destructiveOps: {
-        requiresToken: Boolean(process.env.AQUA_ADMIN_TOKEN),
-        enabledByEnv: process.env.AQUA_ALLOW_DESTRUCTIVE === '1',
-        production: process.env.NODE_ENV === 'production',
+      security: {
+        production: securityCfg.production,
+        destructiveOps: 'solo ADMIN, con reautenticación, token de un solo uso, confirmación explícita y auditoría previa',
+        audit: audit.status(),
+        authStorage: authStore.lastWriteError ? 'error de escritura' : 'ok',
+        activeSessions: authStore.activeSessionCount(),
+        rateLimiter: 'memoria de un solo proceso',
       },
       ledgerCount: state.ledger.length,
       ledgerHeadHash: state.ledger[state.ledger.length - 1]?.hash ?? null,
@@ -537,9 +650,9 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
     });
   });
 
-  app.get('/api/state', locked((_req, res) => void res.json(statePayload())));
+  app.get('/api/state', needs('state:read'), locked((_req, res) => void res.json(statePayload())));
 
-  app.get('/api/state/consistency', locked(async (_req, res) => {
+  app.get('/api/state/consistency', needs('state:read'), locked(async (_req, res) => {
     res.json({ integrity: await computeIntegrity(), issues: auditStateConsistency(state) });
   }));
 
@@ -547,7 +660,7 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
     res.json({ keyId: keys.keyId, publicKeyPem: keys.publicKeyPem, persistence: keys.persistence, algorithm: 'Ed25519' });
   });
 
-  app.get('/api/ledger/anchor', locked((_req, res) => {
+  app.get('/api/ledger/anchor', needs('ledger:anchor'), locked((_req, res) => {
     const anchor = issueAnchor(keys, state.ledger);
     state.anchors = [...state.anchors, anchor].slice(-MAX_ANCHORS);
     persistAndBroadcast(false);
@@ -565,7 +678,9 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
       fs.writeFileSync(file, JSON.stringify(persistedShape()), 'utf8');
       archivedTo = path.relative(path.dirname(statePath), file).replace(/\\/g, '/');
     } catch (err) {
-      console.warn('[reset] No se pudo archivar el estado anterior:', err);
+      // REQ-SEC-05: sin copia del estado anterior no se destruye nada.
+      console.error('[destructivo] No se pudo archivar el estado anterior:', err instanceof Error ? err.message : '');
+      throw new HttpError(507, 'Operación NO ejecutada: no se pudo conservar una copia del estado anterior (disco no disponible).');
     }
     return {
       height: state.ledger.length,
@@ -583,9 +698,9 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
     startupNotes.length = 0;
   }
 
-  app.post('/api/reset', destructiveGuard('reset'), locked(async (_req, res) => {
+  app.post('/api/reset', ...destructiveGuard(security, 'reset'), locked(async (req, res) => {
     const previous = await archiveCurrentState();
-    await replaceState(await createInitialState(previous));
+    await replaceState(await createInitialState(previous, requestedByOf(req, res)));
     ctx.integrity = await computeIntegrity();
     persistAndBroadcast(true);
     res.json({ ok: true, archivedTo: previous.archivedTo, ...statePayload() });
@@ -768,26 +883,26 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
     })();
   }
 
-  app.post('/api/scenarios/:id/trigger', locked(async (req, res) => {
+  app.post('/api/scenarios/:id/trigger', needs('scenario:trigger'), locked(async (req, res) => {
     const id = req.params.id as ScenarioId;
     if (!DIFFERENTIAL_SCENARIOS.some((s) => s.id === id)) throw new HttpError(404, 'Escenario no encontrado.');
     res.json(await executeScenario(id));
   }));
 
   // Modo demo reproducible (REQ-DEMO-01): reinicia, genera datos sintéticos con el solver y ejecuta la fuga sin servicios externos.
-  app.post('/api/demo/frankenstein', destructiveGuard('demo'), locked(async (req, res) => {
+  app.post('/api/demo/frankenstein', ...destructiveGuard(security, 'demo'), locked(async (req, res) => {
     const previous = await archiveCurrentState();
-    await replaceState(await createInitialState(previous));
+    await replaceState(await createInitialState(previous, requestedByOf(req, res)));
     const liveAi = Boolean(req.body?.liveAi);
     await append({
       action: 'DEMO_MODE_STARTED',
-      actor: 'Sistema Aqua Sentinel',
+      actor: actorLabel(req.auth!.user),
       assetId: 'RED-SAN-CRISTOBAL',
       evidenceSummary:
         'Modo demo reproducible: todas las lecturas son SINTÉTICAS (solver hidráulico validado contra EPANET). La IA externa está desactivada salvo que se pida lo contrario.',
       previousState: 'nominal',
       newState: 'demo_synthetic',
-      evidenceData: { scenario: 'leak', synthetic: true, liveAi },
+      evidenceData: { scenario: 'leak', synthetic: true, liveAi, requestedBy: { id: req.auth!.user.id, username: req.auth!.user.username, role: req.auth!.user.role, authenticated: true } },
     });
     const payload = await executeScenario('leak', { forceDeterministicAi: !liveAi });
     ctx.integrity = await computeIntegrity();
@@ -796,7 +911,7 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
 
   // ───────────── Telemetría ─────────────
 
-  app.post('/api/telemetry/ingest', locked(async (req, res) => {
+  app.post('/api/telemetry/ingest', needs('telemetry:ingest'), bigBody('/api/telemetry/ingest'), locked(async (req, res) => {
     const { csvText, readings: direct } = (req.body ?? {}) as { csvText?: unknown; readings?: unknown };
     let raws: unknown[];
     const errors: string[] = [];
@@ -833,7 +948,7 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
 
   // ───────────── Visión y diagnóstico (llamadas externas fuera de la exclusión mutua) ─────────────
 
-  app.post('/api/ai/vision-analyze', async (req, res) => {
+  app.post('/api/ai/vision-analyze', needs('ai:use'), limitUser(security, 'ai'), limitUser(security, 'upload'), bigBody('/api/ai/vision-analyze'), async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const nodeId = str(body.nodeId, 60);
     if (!nodeId) throw new HttpError(400, 'Se requiere nodeId.');
@@ -905,7 +1020,7 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
     });
   });
 
-  app.post('/api/ai/diagnose', async (req, res) => {
+  app.post('/api/ai/diagnose', needs('ai:use'), limitUser(security, 'ai'), async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const anomalyId = str(body.anomalyId, 120);
     if (!anomalyId) throw new HttpError(400, 'Se requiere anomalyId.');
@@ -941,7 +1056,7 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
     });
   });
 
-  app.get('/api/anomalies/:id/forensics', locked((req, res) => {
+  app.get('/api/anomalies/:id/forensics', needs('state:read'), locked((req, res) => {
     const anomaly = state.anomalies.find((a) => a.id === req.params.id);
     if (!anomaly) throw new HttpError(404, 'Anomalía no encontrada.');
     const diag = diagnoseHydraulics(state.nodes, NETWORK_PIPES, { streak: ctx.excessStreak, requiredConsecutive: REQUIRED_CONSECUTIVE, confirmingPhotoNodeIds: confirmingPhotoNodes() });
@@ -951,7 +1066,7 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
 
   // ───────────── Decisiones y órdenes de trabajo ─────────────
 
-  app.post('/api/diagnoses/:id/decision', locked(async (req, res) => {
+  app.post('/api/diagnoses/:id/decision', needs('diagnosis:decide'), locked(async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const decision = body.decision;
     if (decision !== 'accepted' && decision !== 'modified' && decision !== 'rejected') throw new HttpError(400, 'decision debe ser accepted, modified o rejected.');
@@ -998,27 +1113,25 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
         status: 'Abierta',
         checklist: buildChecklist(updatedDiagnosis.interventionSteps),
       };
-      const entry = await append({
+      const entry = await append(asUser(req, {
         action: 'WORK_ORDER_ISSUED',
-        actor: 'Operador Central (Aprobación Aqua Brain)',
         assetId: createdOrder.nodeId,
         evidenceSummary: `${createdOrder.id} emitida [${createdOrder.priority}]: ${updatedDiagnosis.recommendedAction}`,
         previousState: 'diagnosis_pending_approval',
         newState: 'Abierta',
         evidenceData: { workOrderId: createdOrder.id, diagnosisId: updatedDiagnosis.id, decision, operatorNote, assignee },
-      });
+      }));
       createdOrder.ledgerHash = entry.hash;
       state.workOrders = [createdOrder, ...state.workOrders];
     } else {
-      await append({
+      await append(asUser(req, {
         action: 'DIAGNOSIS_REJECTED',
-        actor: 'Operador Central',
         assetId: updatedDiagnosis.nodeId,
         evidenceSummary: `Recomendación rechazada. Motivo: ${operatorNote || 'Descartada por operador'}`,
         previousState: 'diagnosis_pending_approval',
         newState: 'rejected',
         evidenceData: { diagnosisId: updatedDiagnosis.id, operatorNote },
-      });
+      }));
     }
     persistAndBroadcast(false);
     res.json({ diagnosis: updatedDiagnosis, createdOrder, ...statePayload() });
@@ -1030,7 +1143,7 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
     return i;
   };
 
-  app.patch('/api/work-orders/:id', locked(async (req, res) => {
+  app.patch('/api/work-orders/:id', needs('order:write'), locked(async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const status = body.status as WorkOrderStatus;
     if (status !== 'En Progreso' && status !== 'Cerrada') throw new WorkOrderError('Estado inválido: solo "En Progreso" o "Cerrada".', 400);
@@ -1057,15 +1170,14 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
     };
 
     if (status !== 'Cerrada') {
-      await append({
+      await append(asUser(req, {
         action: 'WORK_ORDER_UPDATED',
-        actor: declaredActor(existing.assignee),
         assetId: existing.nodeId,
         evidenceSummary: `${existing.id} cambió a ${status}`,
         previousState: existing.status,
         newState: status,
         evidenceData: { workOrderId: existing.id, status },
-      });
+      }));
       state.workOrders[idx] = updated;
       persistAndBroadcast(false);
       res.json({ workOrder: updated, ...statePayload() });
@@ -1095,9 +1207,8 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
         : null,
     };
     const digests = await prepareSeal(sealed);
-    const closedEntry = await append({
+    const closedEntry = await append(asUser(req, {
       action: 'WORK_ORDER_CLOSED',
-      actor: declaredActor(existing.assignee),
       assetId: existing.nodeId,
       evidenceSummary: `${existing.id} cerrada con checklist completo y foto sha256:${existing.closureEvidence?.sha256.slice(0, 12)}…; expediente sellado sha256:${digests.dossierDigest.slice(0, 12)}…: ${closureNotes || 'Verificación en campo completada'}`,
       previousState: existing.status,
@@ -1110,7 +1221,7 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
         componentDigests: digests.componentDigests,
         sealVersion: 1,
       },
-    });
+    }));
     updated.seal = finalizeSeal(keys, existing.id, digests, closedEntry);
     updated.ledgerHash = closedEntry.hash;
     state.sealedDossiers[existing.id] = sealed;
@@ -1137,7 +1248,7 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
     res.json({ workOrder: updated, ...statePayload() });
   }));
 
-  app.patch('/api/work-orders/:id/assignee', locked(async (req, res) => {
+  app.patch('/api/work-orders/:id/assignee', needs('order:write'), locked(async (req, res) => {
     const idx = orderIdx(req.params.id);
     const existing = ensureChecklist(state.workOrders[idx]);
     if (existing.status === 'Cerrada') throw new WorkOrderError('La orden está cerrada.', 409);
@@ -1147,40 +1258,38 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
       return;
     }
     const updated: SmartWorkOrder = { ...existing, assignee, updatedAt: new Date().toISOString() };
-    await append({
+    await append(asUser(req, {
       action: 'WORK_ORDER_ASSIGNED',
-      actor: 'Operador Central',
       assetId: existing.nodeId,
       evidenceSummary: `${existing.id}: responsable ${existing.assignee} → ${assignee}`,
       previousState: existing.assignee,
       newState: assignee,
       evidenceData: { workOrderId: existing.id, from: existing.assignee, to: assignee },
-    });
+    }));
     state.workOrders[idx] = updated;
     persistAndBroadcast(false);
     res.json({ workOrder: updated, ...statePayload() });
   }));
 
-  app.patch('/api/work-orders/:id/checklist/:itemId', locked(async (req, res) => {
+  app.patch('/api/work-orders/:id/checklist/:itemId', needs('order:write'), locked(async (req, res) => {
     const idx = orderIdx(req.params.id);
     if (typeof req.body?.done !== 'boolean') throw new WorkOrderError('Se requiere "done" booleano.', 400);
     const existing = ensureChecklist(state.workOrders[idx]);
-    const { order: updated, item } = setChecklistItem(existing, req.params.itemId, req.body.done, existing.assignee, new Date().toISOString());
-    await append({
+    const { order: updated, item } = setChecklistItem(existing, req.params.itemId, req.body.done, actorLabel(req.auth!.user), new Date().toISOString());
+    await append(asUser(req, {
       action: item.done ? 'CHECKLIST_ITEM_COMPLETED' : 'CHECKLIST_ITEM_REOPENED',
-      actor: declaredActor(existing.assignee),
       assetId: existing.nodeId,
       evidenceSummary: `${existing.id} · ${item.id}: ${item.label}`,
       previousState: item.done ? 'pendiente' : 'completado',
       newState: item.done ? 'completado' : 'pendiente',
       evidenceData: { workOrderId: existing.id, itemId: item.id, label: item.label, done: item.done },
-    });
+    }));
     state.workOrders[idx] = updated;
     persistAndBroadcast(false);
     res.json({ workOrder: updated, ...statePayload() });
   }));
 
-  app.post('/api/work-orders/:id/evidence', locked(async (req, res) => {
+  app.post('/api/work-orders/:id/evidence', needs('order:evidence'), limitUser(security, 'upload'), bigBody('/api/work-orders/x/evidence'), locked(async (req, res) => {
     const idx = orderIdx(req.params.id);
     const existing = ensureChecklist(state.workOrders[idx]);
     if (existing.status === 'Cerrada') throw new WorkOrderError('La orden está cerrada; no se puede reemplazar la evidencia.', 409);
@@ -1197,24 +1306,23 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
     const now = new Date().toISOString();
     const updated = attachEvidence(
       existing,
-      { fileName, mimeType: image.mimeType, sizeBytes: stored.sizeBytes, sha256: stored.sha256, attachedAt: now, attachedBy: existing.assignee },
+      { fileName, mimeType: image.mimeType, sizeBytes: stored.sizeBytes, sha256: stored.sha256, attachedAt: now, attachedBy: actorLabel(req.auth!.user) },
       now
     );
-    await append({
+    await append(asUser(req, {
       action: 'CLOSURE_EVIDENCE_ATTACHED',
-      actor: declaredActor(existing.assignee),
       assetId: existing.nodeId,
       evidenceSummary: `${existing.id}: foto de cierre ${fileName} (${stored.sizeBytes} B) sha256:${stored.sha256.slice(0, 16)}… (solo se sella el hash: el contenido de la foto no se analiza)`,
       previousState: existing.closureEvidence ? 'evidencia_previa' : 'sin_evidencia',
       newState: 'evidencia_adjunta',
       evidenceData: { workOrderId: existing.id, sha256: stored.sha256, mimeType: image.mimeType, sizeBytes: stored.sizeBytes },
-    });
+    }));
     state.workOrders[idx] = updated;
     persistAndBroadcast(false);
     res.json({ workOrder: updated, ...statePayload() });
   }));
 
-  app.get('/api/evidence/:sha256', (req, res) => {
+  app.get('/api/evidence/:sha256', needs('evidence:read'), (req, res) => {
     const found = readEvidence(req.params.sha256, evidenceDir);
     if (!found) throw new HttpError(404, 'Evidencia no encontrada.');
     if (!found.verified) throw new HttpError(422, 'El archivo almacenado no coincide con su SHA-256 (posible alteración).');
@@ -1243,7 +1351,7 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
     return { dossier, verification };
   }
 
-  app.get('/api/work-orders/:id/dossier', locked(async (req, res) => {
+  app.get('/api/work-orders/:id/dossier', needs('dossier:export'), locked(async (req, res) => {
     const { dossier, verification } = await buildVerifiedDossier(req.params.id);
     if (verification.overall !== 'verified') {
       ctx.integrity = { status: 'compromised', issues: [`El expediente de ${req.params.id} no supera la verificación en el servidor.`], checkedAt: new Date().toISOString() };
@@ -1256,12 +1364,12 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
     res.json(dossier);
   }));
 
-  app.get('/api/work-orders/:id/dossier/verify', locked(async (req, res) => {
+  app.get('/api/work-orders/:id/dossier/verify', needs('dossier:verify'), locked(async (req, res) => {
     const { verification } = await buildVerifiedDossier(req.params.id);
     res.json({ verification, keyId: keys.keyId });
   }));
 
-  app.post('/api/dossier/verify', async (req, res) => {
+  app.post('/api/dossier/verify', needs('dossier:verify'), bigBody('/api/dossier/verify'), async (req, res) => {
     const body = (req.body ?? {}) as { dossier?: never; trustedPublicKeyPem?: string; trustedKeyId?: string; useServerKey?: boolean };
     if (!body.dossier || typeof body.dossier !== 'object') throw new HttpError(400, 'Se requiere el expediente en "dossier".');
     const verification = await verifyDossierFull(body.dossier, {
@@ -1271,14 +1379,14 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
     res.json({ verification });
   });
 
-  app.post('/api/ledger/verify', async (req, res) => {
+  app.post('/api/ledger/verify', needs('dossier:verify'), bigBody('/api/ledger/verify'), async (req, res) => {
     const chain = Array.isArray(req.body?.ledger) ? (req.body.ledger as TrustLedgerEntry[]) : state.ledger;
     res.json(await verifyLedgerChain(chain));
   });
 
   // ───────────── Sincronización offline ─────────────
 
-  app.post('/api/sync/offline', async (req, res) => {
+  app.post('/api/sync/offline', needs('offline:sync'), limitUser(security, 'upload'), bigBody('/api/sync/offline'), async (req, res) => {
     const reports = req.body?.reports;
     if (!Array.isArray(reports)) throw new HttpError(400, 'Se requiere la lista "reports".');
     if (reports.length > 100) throw new HttpError(400, 'Máximo 100 reportes por sincronización.');
@@ -1401,15 +1509,14 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
         };
         state.diagnoses = [diag, ...state.diagnoses];
 
-        await append({
+        await append(asUser(req, {
           action: 'OFFLINE_REPORT_SYNCED',
-          actor: `${c.reporter} (Modo Offline, declarado)`,
           assetId: c.nodeId,
           evidenceSummary: `${c.description.slice(0, 200)} (${cls.note})`,
           previousState: 'offline_pending',
           newState: cls.status === 'active' ? 'synced_to_brain' : 'synced_with_conflict_review',
-          evidenceData: { reportId: c.id, idempotencyKey: c.key, anomalyId: anomaly.id, diagnosisId: diag.id, classification: cls.status, conflictOrderId: cls.conflictOrderId ?? null },
-        });
+          evidenceData: { reportId: c.id, idempotencyKey: c.key, anomalyId: anomaly.id, diagnosisId: diag.id, classification: cls.status, conflictOrderId: cls.conflictOrderId ?? null, declaredReporter: c.reporter, reporterDeclaredUnverified: true },
+        }));
         results.push({ id: c.id, status: cls.status === 'active' ? 'synced' : 'conflict', note: cls.note, anomalyId: anomaly.id, diagnosisId: diag.id });
       }
       persistAndBroadcast(true);
@@ -1419,13 +1526,13 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
 
   // ───────────── Snapshot ─────────────
 
-  app.get('/api/state/export', locked((_req, res) => {
+  app.get('/api/state/export', needs('snapshot:export'), limitUser(security, 'admin'), locked((_req, res) => {
     const snapshot = buildSnapshot({ version: 2, savedAt: new Date().toISOString(), ...persistedShape() }, evidenceDir);
     res.setHeader('Content-Disposition', 'attachment; filename="aqua-sentinel-snapshot.json"');
     res.json(snapshot);
   }));
 
-  app.post('/api/state/import', destructiveGuard('import'), locked(async (req, res) => {
+  app.post('/api/state/import', ...destructiveGuard(security, 'import'), bigBody('/api/state/import'), locked(async (req, res) => {
     const result = await validateSnapshot(req.body, {
       verifyAnchor: (a) => a.payload.keyId === keys.keyId && verifyAnchorSignature(keys.publicKeyPem, a),
       currentAnchors: state.anchors.filter((a) => a.payload.keyId === keys.keyId),
@@ -1456,15 +1563,14 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
       anchors: s.anchors ?? [],
       seenReadingKeys: s.seenReadingKeys ?? {},
     });
-    await append({
+    await append(asUser(req, {
       action: 'STATE_RESTORED_FROM_SNAPSHOT',
-      actor: 'Operador Central',
       assetId: 'RED-SAN-CRISTOBAL',
       evidenceSummary: `Estado restaurado desde un snapshot exportado el ${result.snapshot.exportedAt}; cadena, coherencia y sellos verificados antes de aceptar (${s.ledger.length} bloques).`,
       previousState: 'estado_previo',
       newState: 'restaurado',
       evidenceData: { exportedAt: result.snapshot.exportedAt, ledgerBlocks: s.ledger.length, replacedChainHead: previous.headHash, replacedChainHeight: previous.height, repairs: repaired.repairs },
-    });
+    }));
     pushAnchor();
     ctx.integrity = await computeIntegrity();
     persistAndBroadcast(true);
@@ -1473,11 +1579,11 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
 
   // ───────────── IA: sonda y repositorio Kiro ─────────────
 
-  app.post('/api/ai/probe', async (_req, res) => {
+  app.post('/api/ai/probe', needs('ai:probe'), limitUser(security, 'ai-probe'), async (_req, res) => {
     res.json(await probeGemini());
   });
 
-  app.get('/api/kiro/files', (_req, res) => {
+  app.get('/api/kiro/files', needs('kiro:read'), (_req, res) => {
     const kiroRoot = path.resolve(process.cwd(), '.kiro');
     const files: Array<{ path: string; category: string; content: string }> = [];
     const walk = (dir: string, category: string) => {
@@ -1510,5 +1616,8 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
       sseClients.clear();
     },
     inspect: () => ({ epoch: ctx.epoch, integrity: ctx.integrity }),
+    authStore,
+    audit,
+    setupCode,
   };
 }

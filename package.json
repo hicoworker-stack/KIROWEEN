@@ -11,9 +11,10 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx --test \"src/**/*.test.ts\"",
+    "test": "tsx --test \"src/**/*.test.ts\" \"src/**/*.test.tsx\"",
     "verify:kiro": "tsx scripts/verifyKiro.ts",
-    "verify:dossier": "tsx scripts/verifyDossier.ts"
+    "verify:dossier": "tsx scripts/verifyDossier.ts",
+    "auth": "tsx scripts/authAdmin.ts"
   },
   "dependencies": {
     "@google/genai": "^3.6.0",

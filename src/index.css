@@ -4,6 +4,22 @@
   --font-display: "Plus Jakarta Sans", system-ui, sans-serif;
   --font-sans: "DM Sans", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Sistema visual: pocas superficies, texto legible y un solo color de acento. */
+  --color-canvas: #06131c;
+  --color-surface: #0a1d29;
+  --color-raised: #0f2736;
+  --color-line: #18364a;
+  --color-line-strong: #2a5873;
+  --color-ink: #e6f1f5;
+  --color-soft: #b4c9d6;
+  --color-quiet: #8fa9b8;
+  --color-accent: #22d3ee;
+  --color-ok: #34d399;
+  --color-attention: #fbbf24;
+  --color-critical: #fb7185;
+  --color-verifying: #a5b4fc;
+  --color-offline: #94a3b8;
 }
 
 @layer base {
@@ -39,4 +55,63 @@
 
 ::-webkit-scrollbar-thumb:hover {
   background: #234c66;
+}
+
+/* Accesibilidad: foco visible y respeto a quien prefiere menos movimiento. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.skip-link {
+  position: absolute;
+  left: 8px;
+  top: -48px;
+  z-index: 100;
+  padding: 10px 14px;
+  background: var(--color-accent);
+  color: #041018;
+  font-weight: 600;
+  border-radius: 8px;
+}
+.skip-link:focus {
+  top: 8px;
+}
+
+@keyframes view-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.view-in {
+  animation: view-in 180ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Zonas seguras en móviles con muesca para la barra inferior. */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+details > summary {
+  list-style: none;
+}
+details > summary::-webkit-details-marker {
+  display: none;
 }

@@ -1,3 +1,4 @@
+import { apiFetch } from '../client/api';
 import React, { useState } from 'react';
 import { ShieldCheck, ShieldAlert, Lock, AlertTriangle, RotateCcw } from 'lucide-react';
 import { verifyLedgerChain } from '../core/cryptoLedger';
@@ -23,7 +24,7 @@ export const TrustLedgerView: React.FC<TrustLedgerViewProps> = ({ ledger }) => {
     try {
       const [clientSettled, serverSettled] = await Promise.allSettled([
         verifyLedgerChain(chainToTest),
-        fetch('/api/ledger/verify', {
+        apiFetch('/api/ledger/verify', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ledger: chainToTest }),

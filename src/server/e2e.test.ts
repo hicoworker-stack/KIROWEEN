@@ -5,7 +5,7 @@ import path from 'node:path';
 import { DecisionDossier } from '../core/dossier';
 import { buildScenarioFrames } from '../sim/scenarioGenerator';
 import { verifyDossierFull } from './dossierVerify';
-import { admin, ADMIN_TOKEN, api, PNG_1X1, RunningServer, startServer } from './testing/harness';
+import { admin, anonApi, api, authedFetch, PNG_1X1, RunningServer, Session, startServer } from './testing/harness';
 
 /**
  * Pruebas de extremo a extremo REALES: arrancan server.ts como proceso y recorren el flujo completo.
@@ -28,7 +28,7 @@ const patch = (url: string, body?: unknown) => api(srv.base, 'PATCH', url, body 
 const clone = <T>(x: T): T => structuredClone(x);
 
 before(async () => {
-  srv = await startServer({ env: { AQUA_ADMIN_TOKEN: ADMIN_TOKEN } });
+  srv = await startServer();
 });
 after(async () => {
   await srv?.stop();
@@ -36,37 +36,36 @@ after(async () => {
 
 // ───────────────────────── P0: operaciones destructivas ─────────────────────────
 
-test('REQ-SEC-01: reset/demo/import exigen confirmación y token; un POST "simple" desde otra web no pasa', async () => {
+test('REQ-SEC-01: reset/demo/import exigen confirmación y token de operación; un POST "simple" desde otra web no pasa', async () => {
   assert.equal((await post('/api/reset')).status, 400, 'sin cabecera de confirmación');
-  assert.equal((await api(srv.base, 'POST', '/api/reset', undefined, { 'x-aqua-confirm': 'reset' })).status, 401, 'sin token');
-  assert.equal((await post('/api/reset', {}, admin('reset', 'otro-token'))).status, 401, 'token incorrecto');
-  assert.equal((await post('/api/demo/frankenstein', {}, admin('reset'))).status, 400, 'la confirmación debe nombrar la operación');
-  assert.equal((await post('/api/state/import', {}, admin('import', null))).status, 401);
+  assert.equal((await api(srv.base, 'POST', '/api/reset', undefined, { 'x-aqua-confirm': 'reset' })).status, 401, 'sin token de operación');
+  assert.equal((await post('/api/reset', {}, { 'x-aqua-confirm': 'reset', 'x-operation-token': 'token-inventado-0123456789' })).status, 401, 'token incorrecto');
+  assert.equal((await post('/api/demo/frankenstein', {}, await admin('reset'))).status, 400, 'la confirmación debe nombrar la operación');
+  assert.equal((await post('/api/state/import', {}, { 'x-aqua-confirm': 'import' })).status, 401);
   const text = await fetch(`${srv.base}/api/reset`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: '{}' });
-  assert.equal(text.status, 400, 'una petición text/plain sin cabecera personalizada (CSRF) se rechaza');
+  assert.equal(text.status, 401, 'una petición text/plain sin sesión ni cabeceras personalizadas (CSRF) se rechaza');
   const h = (await get('/api/health')).data;
   assert.equal(h.ledgerCount, 1, 'ninguno de los intentos fallidos tocó el estado');
-  assert.equal(h.destructiveOps.requiresToken, true);
+  assert.match(h.security.destructiveOps, /reautenticación/);
 });
 
-test('REQ-SEC-01: en producción sin token ni habilitación explícita las operaciones destructivas quedan deshabilitadas (403) y el estado intacto', async () => {
-  const locked = await startServer({ env: { AQUA_ADMIN_TOKEN: '' } });
+test('REQ-SEC-01: sin usuarios ni sesión las operaciones destructivas quedan denegadas (401) y el estado intacto', async () => {
+  const locked = await startServer({ noDefaultLogin: true });
   try {
-    const before = (await api(locked.base, 'GET', '/api/health')).data.ledgerCount;
     for (const op of ['reset', 'demo', 'import'] as const) {
       const url = op === 'reset' ? '/api/reset' : op === 'demo' ? '/api/demo/frankenstein' : '/api/state/import';
-      assert.equal((await api(locked.base, 'POST', url, {}, { 'x-aqua-confirm': op })).status, 403, op);
+      assert.equal((await anonApi(locked.base, 'POST', url, {}, { 'x-aqua-confirm': op })).status, 401, op);
     }
-    assert.equal((await api(locked.base, 'GET', '/api/health')).data.ledgerCount, before);
+    const s = await new Session(locked.base).as('admin');
+    assert.equal((await s.request('GET', '/api/health')).data.ledgerCount, 1);
   } finally {
     await locked.stop();
   }
 });
-
 // ───────────────────────── Demo, hidráulica y reproducibilidad ─────────────────────────
 
 test('REQ-DEMO-01/REQ-HYD-04: la demo genera datos con el solver y el diagnóstico concluye con incertidumbre, sin foto analizada ni porcentajes', async () => {
-  const demo = await post('/api/demo/frankenstein', {}, admin('demo'));
+  const demo = await post('/api/demo/frankenstein', {}, await admin('demo'));
   assert.equal(demo.status, 200);
   const d = demo.data;
   assert.equal(d.demo.synthetic, true);
@@ -104,7 +103,7 @@ test('REQ-DEMO-01/REQ-HYD-04: la demo genera datos con el solver y el diagnósti
 
 test('REQ-HYD-04: la demo es reproducible (mismas cifras con la misma semilla)', async () => {
   const first = (await get('/api/state')).data;
-  const again = (await post('/api/demo/frankenstein', {}, admin('demo'))).data;
+  const again = (await post('/api/demo/frankenstein', {}, await admin('demo'))).data;
   const a = first.hydraulic.findings[0];
   const b = again.hydraulic.findings[0];
   assert.equal(a.excessLs, b.excessLs);
@@ -169,7 +168,7 @@ test('REQ-WO-03: la foto de cierre se valida por firma real; el cierre se bloque
   assert.equal(ok.status, 200);
   assert.equal(ok.data.workOrder.closureEvidence.fileName, 'cierre.png');
   S.sha = ok.data.workOrder.closureEvidence.sha256;
-  const img = await fetch(`${srv.base}/api/evidence/${S.sha}`);
+  const img = await authedFetch(srv.base, `/api/evidence/${S.sha}`);
   assert.equal(img.status, 200);
   assert.equal(img.headers.get('content-type'), 'image/png');
   assert.equal((await get('/api/evidence/' + '0'.repeat(64))).status, 404);
@@ -232,7 +231,7 @@ test('REQ-RES-01/02: lecturas malformadas se rechazan, no corrompen el estado y 
   assert.equal(worse.data.ingestedCount, 0);
   assert.equal((await post('/api/telemetry/ingest', { readings: 'no es una lista' })).status, 400);
   assert.equal((await post('/api/telemetry/ingest', {})).status, 400);
-  const badJson = await fetch(`${srv.base}/api/telemetry/ingest`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{roto' });
+  const badJson = await authedFetch(srv.base, `/api/telemetry/ingest`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{roto' });
   assert.equal(badJson.status, 400);
   assert.ok(srv.isAlive());
 });
@@ -363,34 +362,34 @@ test('REQ-LED-07: snapshot: se rechaza si las órdenes no coinciden con el ledge
 
   const badOrder = clone(snap);
   badOrder.state.workOrders.find((w: any) => w.id === S.orderId).assignee = 'Alterado en snapshot';
-  const r1 = await post('/api/state/import', badOrder, admin('import'));
+  const r1 = await post('/api/state/import', badOrder, await admin('import'));
   assert.equal(r1.status, 422);
   assert.ok(r1.data.errors.some((e: string) => /assignee_mismatch/.test(e)));
 
   const badSeal = clone(snap);
   (badSeal.state.sealedDossiers[S.orderId].order as any).priority = 'Baja';
-  assert.equal((await post('/api/state/import', badSeal, admin('import'))).status, 422, 'un expediente sellado alterado en el snapshot');
+  assert.equal((await post('/api/state/import', badSeal, await admin('import'))).status, 422, 'un expediente sellado alterado en el snapshot');
 
   const badChain = clone(snap);
   badChain.state.ledger[1].evidenceSummary = 'manipulado';
-  assert.equal((await post('/api/state/import', badChain, admin('import'))).status, 422);
+  assert.equal((await post('/api/state/import', badChain, await admin('import'))).status, 422);
   assert.equal((await post('/api/state/import', snap)).status, 400, 'sin cabecera de confirmación');
 });
 
 test('REQ-RES-09/REQ-LED-07: tras un reset (archivado) el snapshot íntegro se restaura con su orden, su foto y su expediente verificables', async () => {
-  const reset = await post('/api/reset', {}, admin('reset'));
+  const reset = await post('/api/reset', {}, await admin('reset'));
   assert.equal(reset.status, 200);
   assert.ok(reset.data.archivedTo);
   assert.equal(reset.data.ledger.length, 1);
   assert.equal((await get(`/api/work-orders/${S.orderId}/dossier`)).status, 404);
 
-  const restored = await post('/api/state/import', S.snapshot, admin('import'));
+  const restored = await post('/api/state/import', S.snapshot, await admin('import'));
   assert.equal(restored.status, 200, JSON.stringify(restored.data).slice(0, 400));
   const state = (await get('/api/state')).data;
   assert.equal(state.workOrders.find((w: any) => w.id === S.orderId).status, 'Cerrada');
   assert.equal(state.ledger[state.ledger.length - 1].action, 'STATE_RESTORED_FROM_SNAPSHOT');
   assert.equal((await post('/api/ledger/verify')).data.valid, true);
-  assert.equal((await fetch(`${srv.base}/api/evidence/${S.sha}`)).status, 200);
+  assert.equal((await authedFetch(srv.base, `/api/evidence/${S.sha}`)).status, 200);
   const dossier = (await get(`/api/work-orders/${S.orderId}/dossier`)).data as DecisionDossier;
   assert.equal((await verifyDossierFull(dossier, { trustedPublicKeyPem: S.keyPem })).overall, 'verified');
   assert.ok((await get('/api/state/consistency')).data.issues.every((i: any) => i.severity !== 'error'));
@@ -408,7 +407,7 @@ test('REQ-AI-03: sin clave de Gemini la sonda es honesta y el estado no afirma "
 });
 
 test('REQ-HYD-03: una única muestra con exceso NO crea incidente; la segunda consecutiva sí (persistencia exigida)', async () => {
-  assert.equal((await post('/api/reset', {}, admin('reset'))).status, 200);
+  assert.equal((await post('/api/reset', {}, await admin('reset'))).status, 200);
   const base = Date.now() - 20 * 60_000;
   const frames = buildScenarioFrames('leak', base);
   const last = frames[frames.length - 1];

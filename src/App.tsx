@@ -1,27 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  Activity,
-  BrainCircuit,
-  ClipboardList,
-  Compass,
-  Eye,
-  Menu,
-  Play,
-  Settings2,
-  ShieldCheck,
-  X,
-} from 'lucide-react';
-import {
-  createBaselineNodes,
-  DIFFERENTIAL_SCENARIOS,
-  NETWORK_PIPES,
-} from './core/networkData';
+import { DIFFERENTIAL_SCENARIOS, NETWORK_PIPES, createBaselineNodes } from './core/networkData';
 import { listOfflineReports, saveOfflineReport, updateOfflineReport } from './core/offlineStore';
 import {
   AnomalyEvent,
   AquaBrainDiagnosis,
   NetworkNode,
   OfflineReportRecord,
+  PriorityLevel,
   ScenarioId,
   SmartWorkOrder,
   TelemetryReading,
@@ -29,88 +14,43 @@ import {
   VisionAnalysisResult,
   WorkOrderStatus,
 } from './core/types';
+import { can } from './core/permissions';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { HydraulicDiagnosis } from './core/hydraulicDiagnosis';
 import { destructiveFetch, readServerMessage } from './client/adminFetch';
-import { WelcomeScreen } from './components/WelcomeScreen';
-import { CommandCenterView } from './components/CommandCenterView';
+import { apiFetch, SessionUser } from './client/api';
+import { AuthGate } from './client/AuthGate';
+import { AppShell } from './components/AppShell';
+import { HomeView } from './components/HomeView';
+import { MapView } from './components/MapView';
+import { IncidentsView } from './components/IncidentsView';
+import { WorkOrdersView } from './components/WorkOrdersView';
+import { AdvancedView, DemoPanel } from './components/AdvancedView';
 import { SensorIntelligenceView } from './components/SensorIntelligenceView';
 import { VisionIntelligenceView } from './components/VisionIntelligenceView';
-import { AquaBrainView } from './components/AquaBrainView';
-import { WorkOrdersView } from './components/WorkOrdersView';
 import { TrustLedgerView } from './components/TrustLedgerView';
 import { IntegrationsAndOfflineView } from './components/IntegrationsAndOfflineView';
+import { ReportIssueSheet } from './components/ReportIssueSheet';
+import { Button, Notice } from './components/ui';
+import { AdvancedTab, hashFor, MainView, networkSummary, parseHash } from './ui/vocab';
 
-type ActiveView =
-  | 'command-center'
-  | 'sensors'
-  | 'vision'
-  | 'aqua-brain'
-  | 'work-orders'
-  | 'ledger'
-  | 'integrations';
-
-const NAV_ITEMS: Array<{
-  id: ActiveView;
-  label: string;
-  icon: React.FC<{ className?: string }>;
-}> = [
-  { id: 'command-center', label: 'Command Center', icon: Compass },
-  { id: 'sensors', label: 'Sensores IoT', icon: Activity },
-  { id: 'vision', label: 'Visión Multimodal', icon: Eye },
-  { id: 'aqua-brain', label: 'Aqua Brain', icon: BrainCircuit },
-  { id: 'work-orders', label: 'Órdenes de Trabajo', icon: ClipboardList },
-  { id: 'ledger', label: 'Trust Ledger', icon: ShieldCheck },
-  { id: 'integrations', label: 'Offline e Integraciones', icon: Settings2 },
+/** Pasos de la demostración guiada, sobre los cuatro apartados de la aplicación. */
+const GUIDED_STEPS: Array<{ view: MainView; tab?: AdvancedTab; title: string; hint: string }> = [
+  { view: 'home', title: 'Qué está pasando', hint: 'Inicio resume el estado de la red y lo que requiere tu atención. Todas las lecturas son simuladas.' },
+  { view: 'incidents', title: 'Entender el incidente', hint: 'Elige el incidente: verás qué pasa, qué significa y qué tan respaldado está. La causa es una hipótesis, no un hecho.' },
+  { view: 'incidents', title: 'Decidir', hint: 'Acepta la recomendación para crear la orden de trabajo, cámbiala o descártala. Queda registrado con tu usuario.' },
+  { view: 'orders', title: 'Registrar la intervención', hint: 'Completa las tareas, añade la foto y cierra la orden. Después comprueba si ya hay mediciones que confirmen la recuperación.' },
+  { view: 'advanced', tab: 'ledger', title: 'Verificar el registro', hint: 'El Trust Ledger encadena cada decisión. Verifícalo o prueba a alterarlo para ver cómo se detecta.' },
 ];
 
-const GUIDED_STEPS: Array<{ step: number; view: ActiveView; title: string; hint: string }> = [
-  {
-    step: 1,
-    view: 'command-center',
-    title: 'Evento hidráulico y forense de fuga',
-    hint: 'El nodo Troncal Norte está crítico. Lee el tramo sospechoso (P-05), el caudal perdido estimado y la población expuesta aguas abajo.',
-  },
-  {
-    step: 2,
-    view: 'sensors',
-    title: 'Series temporales del evento',
-    hint: 'Presión y caudal derivan minuto a minuto frente a la línea base. Cambia a pH o nivel para ver que el resto sigue estable.',
-  },
-  {
-    step: 3,
-    view: 'vision',
-    title: 'Evidencia fotográfica',
-    hint: 'La foto de la brida se correlaciona con los sensores. Separa lo observado de lo que no se puede confirmar.',
-  },
-  {
-    step: 4,
-    view: 'aqua-brain',
-    title: 'Diagnóstico explicable y concordancia',
-    hint: 'Revisa si sensores, foto y topología coinciden. La confianza se limita si hay conflicto. Aprueba para emitir la orden.',
-  },
-  {
-    step: 5,
-    view: 'work-orders',
-    title: 'Ejecución: responsable, checklist y foto',
-    hint: 'Asigna responsable, completa el checklist y adjunta la foto de cierre. Sin eso el sistema no deja cerrar.',
-  },
-  {
-    step: 6,
-    view: 'ledger',
-    title: 'Trazabilidad verificable',
-    hint: 'Verifica la cadena SHA-256. Prueba "Simular Alteración" y observa el bloque exacto que se rompe.',
-  },
-];
 export default function App() {
-  const [showWelcome, setShowWelcome] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return true;
-    const params = new URLSearchParams(window.location.search);
-    return params.get('autostart') !== '1';
-  });
+  return <AuthGate>{(session) => <AppInner user={session.user} onLogout={session.logout} />}</AuthGate>;
+}
 
-  const [activeView, setActiveView] = useState<ActiveView>('command-center');
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+function AppInner({ user, onLogout }: { user: SessionUser; onLogout: () => void }) {
+  const initial = typeof window !== 'undefined' ? parseHash(window.location.hash) : { view: 'home' as MainView, tab: 'sensores' as AdvancedTab };
+  const [view, setView] = useState<MainView>(initial.view);
+  const [advancedTab, setAdvancedTab] = useState<AdvancedTab>(initial.tab);
 
   const [nodes, setNodes] = useState<NetworkNode[]>(() => createBaselineNodes());
   const [seriesByNode, setSeriesByNode] = useState<Record<string, TelemetryReading[]>>({});
@@ -119,39 +59,72 @@ export default function App() {
   const [diagnoses, setDiagnoses] = useState<AquaBrainDiagnosis[]>([]);
   const [workOrders, setWorkOrders] = useState<SmartWorkOrder[]>([]);
   const [ledger, setLedger] = useState<TrustLedgerEntry[]>([]);
-  const [providerStatus, setProviderStatus] = useState<{
-    aiProvider: string;
-    aiMode: 'gemini-live' | 'fallback-adapter';
-    awsAdapters: Record<string, string>;
-  }>({
+  const [providerStatus, setProviderStatus] = useState<{ aiProvider: string; aiMode: 'gemini-live' | 'fallback-adapter'; awsAdapters: Record<string, string> }>({
     aiProvider: 'Cargando proveedor...',
     aiMode: 'fallback-adapter',
     awsAdapters: {},
   });
-
   const [hydraulic, setHydraulic] = useState<HydraulicDiagnosis | null>(null);
   const [persistenceStatus, setPersistenceStatus] = useState<{ mode: 'disk' | 'memory-only'; lastError: string | null } | null>(null);
   const [integrity, setIntegrity] = useState<{ status: 'ok' | 'degraded' | 'compromised'; issues: string[] } | null>(null);
 
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
+
   const [selectedNodeId, setSelectedNodeId] = useState<string>('N-TOMA-01');
+  const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [isSimulatorRunning, setIsSimulatorRunning] = useState(false);
   const [isOfflineMode, setIsOfflineMode] = useState(false);
-  const [browserOnline, setBrowserOnline] = useState<boolean>(() =>
-    typeof navigator !== 'undefined' ? navigator.onLine : true
-  );
+  const [browserOnline, setBrowserOnline] = useState<boolean>(() => (typeof navigator !== 'undefined' ? navigator.onLine : true));
   const [offlineReports, setOfflineReports] = useState<OfflineReportRecord[]>([]);
+  const [reportOpen, setReportOpen] = useState(false);
   const [guidedStepIdx, setGuidedStepIdx] = useState<number | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   const effectiveOffline = !browserOnline || isOfflineMode;
+  const online = !effectiveOffline;
 
   const notify = useCallback((msg: string) => {
     setToastMsg(msg);
-    setTimeout(() => {
-      setToastMsg((prev) => (prev === msg ? null : prev));
-    }, 4000);
+    setTimeout(() => setToastMsg((prev) => (prev === msg ? null : prev)), 6000);
   }, []);
+
+  // ───────────── Navegación (con historial del navegador) ─────────────
+
+  const navigate = useCallback((next: MainView, tab?: AdvancedTab) => {
+    setView(next);
+    if (tab) setAdvancedTab(tab);
+    if (typeof window !== 'undefined') {
+      const target = hashFor(next, tab ?? 'sensores');
+      if (window.location.hash !== target) window.location.hash = target;
+      window.scrollTo?.({ top: 0 });
+    }
+  }, []);
+
+  useEffect(() => {
+    const onHash = () => {
+      const p = parseHash(window.location.hash);
+      setView(p.view);
+      if (p.view === 'advanced') setAdvancedTab(p.tab);
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  const openIncident = (id: string) => {
+    setSelectedIncidentId(id);
+    navigate('incidents');
+  };
+  const openOrder = (id: string) => {
+    setSelectedOrderId(id);
+    navigate('orders');
+  };
+
+  // ───────────── Estado del servidor ─────────────
 
   /** Aplica el estado que envía el servidor. Cada campo se valida: un dato inesperado se ignora, no deja la interfaz en blanco. */
   const applyServerState = useCallback((data: Record<string, any>) => {
@@ -166,37 +139,42 @@ export default function App() {
     if (data.provider) setProviderStatus(data.provider);
     if (data.persistence) setPersistenceStatus(data.persistence);
     if (data.integrity) setIntegrity(data.integrity);
+    if (Array.isArray(data.nodes)) setLastUpdatedAt(Date.now());
   }, []);
 
   const hydrateState = useCallback(async () => {
     try {
-      const res = await fetch('/api/state');
-      if (!res.ok) return;
-      const data = await res.json();
-      applyServerState(data);
-      if (data.provider) setProviderStatus(data.provider);
+      const res = await apiFetch('/api/state');
+      if (!res.ok) {
+        setLoadError(res.status === 401 ? 'Tu sesión terminó.' : `El servidor respondió con el error ${res.status}.`);
+        return;
+      }
+      applyServerState(await res.json());
+      setLoadError(null);
     } catch {
-      // Backend unavailable: keep baseline state
+      setLoadError('No hay conexión con el servidor.');
+    } finally {
+      setLoading(false);
     }
-  }, []);
+  }, [applyServerState]);
 
   useEffect(() => {
-    hydrateState();
+    void hydrateState();
     listOfflineReports()
       .then(setOfflineReports)
       .catch(() => {});
   }, [hydrateState]);
 
-  // Real browser connectivity listeners (M-04)
+  // Conectividad real del navegador (M-04)
   useEffect(() => {
-    if (typeof window === 'undefined') return;
     const handleOnline = () => {
       setBrowserOnline(true);
-      notify('Conectividad de red restaurada.');
+      notify('Volvió la conexión.');
+      void hydrateState();
     };
     const handleOffline = () => {
       setBrowserOnline(false);
-      notify('Conexión de red perdida. Los reportes se guardarán en IndexedDB local.');
+      notify('Se perdió la conexión. Puedes seguir reportando: se guarda en este dispositivo.');
     };
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
@@ -204,20 +182,17 @@ export default function App() {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [notify]);
+  }, [notify, hydrateState]);
 
-  // Live SSE updates for non-blocking AI enrichment (M-01)
+  // Actualizaciones en vivo (enriquecimiento de IA sin bloquear). Se cierra al revocarse la sesión.
   useEffect(() => {
-    if (typeof window === 'undefined' || typeof EventSource === 'undefined' || showWelcome) {
-      return;
-    }
+    if (typeof EventSource === 'undefined') return;
     const source = new EventSource('/api/events');
     const handleUpdate = (event: MessageEvent) => {
       try {
-        const data = JSON.parse(event.data);
-        applyServerState(data);
+        applyServerState(JSON.parse(event.data));
       } catch {
-        // ignore malformed SSE chunk
+        // fragmento mal formado: se ignora
       }
     };
     source.addEventListener('state_update', handleUpdate);
@@ -225,9 +200,9 @@ export default function App() {
       source.removeEventListener('state_update', handleUpdate);
       source.close();
     };
-  }, [showWelcome, applyServerState]);
+  }, [applyServerState]);
 
-  // Real-time IoT simulator loop
+  // Simulador IoT (herramienta avanzada)
   useEffect(() => {
     if (!isSimulatorRunning) return;
     const timer = setInterval(async () => {
@@ -240,43 +215,34 @@ export default function App() {
         nodeId: targetNode.id,
         pressureBar: Number(Math.max(0.2, targetNode.current.pressureBar + jitter(0.08)).toFixed(2)),
         flowLs: Number(Math.max(0.5, targetNode.current.flowLs + jitter(0.6)).toFixed(2)),
-        levelPct:
-          targetNode.baseline.levelPct > 0
-            ? Number(Math.min(100, Math.max(0, targetNode.current.levelPct + jitter(0.8))).toFixed(1))
-            : 0,
+        levelPct: targetNode.baseline.levelPct > 0 ? Number(Math.min(100, Math.max(0, targetNode.current.levelPct + jitter(0.8))).toFixed(1)) : 0,
         turbidityNtu: Number(Math.max(0.2, targetNode.current.turbidityNtu + jitter(0.05)).toFixed(2)),
         chlorineMgL: Number(Math.max(0.05, targetNode.current.chlorineMgL + jitter(0.02)).toFixed(2)),
         ph: Number((targetNode.current.ph + jitter(0.04)).toFixed(2)),
         synthetic: true,
       };
-
       try {
-        const res = await fetch('/api/telemetry/ingest', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ readings: [simulatedReading] }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          applyServerState(data);
-        }
+        const res = await apiFetch('/api/telemetry/ingest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ readings: [simulatedReading] }) });
+        if (res.ok) applyServerState(await res.json());
       } catch {
-        // ignore transient tick errors
+        // error transitorio del ciclo
       }
     }, 2500);
-
     return () => clearInterval(timer);
-  }, [isSimulatorRunning, nodes, selectedNodeId]);
+  }, [isSimulatorRunning, nodes, selectedNodeId, applyServerState]);
+
+  // ───────────── Acciones ─────────────
 
   const handleTriggerScenario = async (id: ScenarioId) => {
     setIsBusy(true);
     try {
-      const res = await fetch(`/api/scenarios/${id}/trigger`, { method: 'POST' });
+      const res = await apiFetch(`/api/scenarios/${id}/trigger`, { method: 'POST' });
       const data = await res.json();
       if (res.ok) {
         applyServerState(data);
         setSelectedNodeId(data.scenario.nodeId);
-        notify(`Escenario "${data.scenario.label}" ejecutado y registrado en Trust Ledger.`);
+        if (data.anomaly?.id) setSelectedIncidentId(data.anomaly.id);
+        notify(`Escenario simulado «${data.scenario.label}» ejecutado. Mira Incidentes.`);
       } else {
         notify(data.error ?? 'No se pudo ejecutar el escenario.');
       }
@@ -293,146 +259,110 @@ export default function App() {
       if (res.ok) {
         applyServerState(data);
         setGuidedStepIdx(null);
-        notify('Red restablecida a línea base nominal. El estado anterior se archivó en el servidor.');
+        setSelectedIncidentId(null);
+        setSelectedOrderId(null);
+        notify('La red volvió a su estado normal. El estado anterior se guardó en el servidor.');
       } else {
-        notify(data.error ?? await readServerMessage(res, 'No se pudo restablecer la red.'));
+        notify(data.error ?? (await readServerMessage(res, 'No se pudo reiniciar la red.')));
       }
     } finally {
       setIsBusy(false);
     }
   };
 
-  const handleStartGuidedDemo = () => handleRunFrankensteinDemo();
-
-  const handleIngestCsv = async (csvText: string) => {
-    const res = await fetch('/api/telemetry/ingest', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ csvText }),
-    });
-    const data = await res.json();
-    if (res.ok) {
+  const handleRunFrankensteinDemo = async () => {
+    setIsBusy(true);
+    try {
+      const res = await destructiveFetch('/api/demo/frankenstein', 'demo');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'No se pudo iniciar la demostración.');
       applyServerState(data);
+      setSelectedNodeId(data.scenario.nodeId);
+      setSelectedIncidentId(data.anomaly?.id ?? null);
+      setGuidedStepIdx(0);
+      navigate('home');
+      notify('Demostración iniciada. Todas las lecturas son simuladas.');
+    } catch (e) {
+      notify(e instanceof Error ? e.message : 'Error al iniciar la demostración.');
+    } finally {
+      setIsBusy(false);
     }
-    return {
-      ingestedCount: data.ingestedCount ?? 0,
-      errors: data.errors ?? [],
-    };
   };
 
-  const handleAnalyzeVision = async (payload: {
-    nodeId: string;
-    imageUrl: string;
-    imageTitle: string;
-    imageBase64?: string;
-    imageMimeType?: string;
-  }): Promise<VisionAnalysisResult> => {
-    const res = await fetch('/api/ai/vision-analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+  const handleIngestCsv = async (csvText: string) => {
+    const res = await apiFetch('/api/telemetry/ingest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ csvText }) });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Error en análisis visual');
+    if (res.ok) applyServerState(data);
+    return { ingestedCount: data.ingestedCount ?? 0, errors: data.errors ?? [] };
+  };
+
+  const handleAnalyzeVision = async (payload: { nodeId: string; imageUrl: string; imageTitle: string; imageBase64?: string; imageMimeType?: string }): Promise<VisionAnalysisResult> => {
+    const res = await apiFetch('/api/ai/vision-analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error en el análisis de la imagen');
     applyServerState(data);
-    notify('Análisis multimodal completado y registrado en Trust Ledger.');
+    notify('Foto guardada y registrada.');
     return data.analysis;
   };
 
+  /** Foto añadida desde un incidente: se vincula al incidente activo de ese punto. */
+  const handleAddIncidentPhoto = async (nodeId: string, dataUrl: string, title: string) => {
+    const m = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+    if (!m) throw new Error('La foto no se pudo preparar.');
+    await handleAnalyzeVision({ nodeId, imageUrl: '', imageTitle: title, imageBase64: m[2], imageMimeType: m[1] });
+  };
+
   const handleGenerateDiagnosis = async (anomalyId: string) => {
-    const res = await fetch('/api/ai/diagnose', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ anomalyId }),
-    });
-    const data = await res.json();
-    if (res.ok) {
-      applyServerState(data);
-      notify('Diagnóstico generado en Aqua Brain.');
-    }
+    const res = await apiFetch('/api/ai/diagnose', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anomalyId }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'No se pudo generar el diagnóstico.');
+    applyServerState(data);
+    notify('Diagnóstico listo.');
   };
 
   const handleDecideDiagnosis = async (
     diagnosisId: string,
-    payload: {
-      decision: 'accepted' | 'modified' | 'rejected';
-      operatorNote?: string;
-      modifiedAction?: string;
-      modifiedPriority?: AquaBrainDiagnosis['priority'];
-    }
+    payload: { decision: 'accepted' | 'modified' | 'rejected'; operatorNote?: string; modifiedAction?: string; modifiedPriority?: PriorityLevel }
   ) => {
-    const res = await fetch(`/api/diagnoses/${diagnosisId}/decision`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    if (res.ok) {
-      applyServerState(data);
-      if (data.createdOrder) {
-        notify(`Orden ${data.createdOrder.id} emitida y sellada en Trust Ledger.`);
-      } else {
-        notify('Decisión de rechazo auditada en Trust Ledger.');
-      }
-    }
-  };
-
-  const applyWorkOrderResponse = (data: {
-    workOrders: SmartWorkOrder[];
-    anomalies: AnomalyEvent[];
-    nodes: NetworkNode[];
-    seriesByNode: Record<string, TelemetryReading[]>;
-    ledger: TrustLedgerEntry[];
-  }) => {
+    const res = await apiFetch(`/api/diagnoses/${diagnosisId}/decision`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `El servidor rechazó la decisión (${res.status}).`);
     applyServerState(data);
+    notify(data.createdOrder ? `Orden ${data.createdOrder.id} creada y registrada.` : 'La recomendación se descartó y quedó registrada.');
   };
 
   /** Llama a la API de órdenes; si el servidor rechaza, lanza el mensaje real para mostrarlo en la UI. */
   const callWorkOrderApi = async (url: string, method: string, body: unknown) => {
     let res: Response;
     try {
-      res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+      res = await apiFetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     } catch {
       throw new Error('Sin conexión con el servidor. La acción no se aplicó.');
     }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `Error ${res.status} del servidor.`);
-    applyWorkOrderResponse(data);
+    applyServerState(data);
     return data;
   };
 
-  const handleUpdateWorkOrder = async (
-    orderId: string,
-    payload: {
-      status: WorkOrderStatus;
-      closureNotes?: string;
-      closureEvidenceLabel?: string;
-    }
-  ) => {
+  const handleUpdateWorkOrder = async (orderId: string, payload: { status: WorkOrderStatus; closureNotes?: string; closureEvidenceLabel?: string }) => {
     await callWorkOrderApi(`/api/work-orders/${orderId}`, 'PATCH', payload);
-    notify(`Orden ${orderId} actualizada a ${payload.status}.`);
+    notify(payload.status === 'Cerrada' ? `Orden ${orderId} cerrada y sellada. Falta confirmar la recuperación con mediciones.` : `Orden ${orderId}: ${payload.status.toLowerCase()}.`);
   };
-
   const handleAssignOrder = async (orderId: string, assignee: string) => {
     await callWorkOrderApi(`/api/work-orders/${orderId}/assignee`, 'PATCH', { assignee });
-    notify(`Responsable de ${orderId}: ${assignee}. Registrado en Trust Ledger.`);
+    notify(`Responsable de ${orderId}: ${assignee}.`);
   };
-
   const handleToggleChecklist = async (orderId: string, itemId: string, done: boolean) => {
     await callWorkOrderApi(`/api/work-orders/${orderId}/checklist/${itemId}`, 'PATCH', { done });
   };
-
   const handleUploadEvidence = async (orderId: string, fileName: string, dataUrl: string) => {
     await callWorkOrderApi(`/api/work-orders/${orderId}/evidence`, 'POST', { fileName, dataUrl });
-    notify('Foto de cierre almacenada y su SHA-256 sellado en Trust Ledger.');
+    notify('Foto guardada y sellada.');
   };
 
   const handleDownloadDossier = async (orderId: string) => {
-    const res = await fetch(`/api/work-orders/${orderId}/dossier`);
+    const res = await apiFetch(`/api/work-orders/${orderId}/dossier`);
     if (!res.ok) throw new Error('No se pudo generar el expediente.');
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
@@ -441,392 +371,228 @@ export default function App() {
     a.download = `dossier-${orderId}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    notify('Expediente descargado. Verifícalo offline con: npm run verify:dossier -- <archivo>');
+    notify('Expediente descargado. Puedes verificarlo sin conexión con: npm run verify:dossier -- <archivo>');
   };
 
-  const handleRunFrankensteinDemo = async () => {
-    setShowWelcome(false);
-    setIsBusy(true);
-    try {
-      const res = await destructiveFetch('/api/demo/frankenstein', 'demo');
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'No se pudo iniciar el modo demo.');
-      applyServerState(data);
-      setSelectedNodeId(data.scenario.nodeId);
-      setActiveView('command-center');
-      setGuidedStepIdx(0);
-      notify('Modo demo reproducible iniciado. Todas las lecturas son sintéticas.');
-    } catch (e) {
-      notify(e instanceof Error ? e.message : 'Error al iniciar el modo demo.');
-    } finally {
-      setIsBusy(false);
-    }
-  };
   const handleCreateOfflineReport = async (record: OfflineReportRecord) => {
     await saveOfflineReport(record);
-    const updated = await listOfflineReports();
-    setOfflineReports(updated);
-    notify(`Reporte ${record.id} guardado localmente en IndexedDB.`);
+    setOfflineReports(await listOfflineReports());
   };
 
   const handleSyncOfflineReports = async () => {
     const pending = offlineReports.filter((r) => r.syncStatus === 'pending');
     if (pending.length === 0) return;
-    const res = await fetch('/api/sync/offline', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reports: pending }),
-    });
-    const data = await res.json();
-    if (res.ok) {
-      for (const item of data.results as Array<{
-        id: string;
-        status: 'synced' | 'duplicate' | 'conflict';
-        note: string;
-      }>) {
-        const match = offlineReports.find((r) => r.id === item.id);
-        if (match) {
-          await updateOfflineReport({
-            ...match,
-            syncStatus: item.status,
-            syncNote: item.note,
-          });
-        }
+    setSyncing(true);
+    try {
+      const res = await apiFetch('/api/sync/offline', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reports: pending }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        notify(data.error ?? 'No se pudieron enviar los reportes. Siguen guardados en este dispositivo.');
+        return;
       }
-      const refreshed = await listOfflineReports();
-      setOfflineReports(refreshed);
+      for (const item of data.results as Array<{ id: string; status: 'synced' | 'duplicate' | 'conflict'; note: string }>) {
+        const match = offlineReports.find((r) => r.id === item.id);
+        if (match) await updateOfflineReport({ ...match, syncStatus: item.status, syncNote: item.note });
+      }
+      setOfflineReports(await listOfflineReports());
       applyServerState(data);
-      if (data.visionAnalyses) setVisionAnalyses(data.visionAnalyses);
-      if (data.anomalies) setAnomalies(data.anomalies);
-      if (data.diagnoses) setDiagnoses(data.diagnoses);
-      if (data.nodes) setNodes(data.nodes);
-      notify(
-        `Sincronización completada (${data.results.length} reporte(s)) e integrada a Aqua Brain.`
-      );
+      notify(`Se enviaron ${data.results.length} reporte(s).`);
+    } catch {
+      notify('No se pudieron enviar los reportes. Siguen guardados en este dispositivo.');
+    } finally {
+      setSyncing(false);
     }
   };
 
-  if (showWelcome) {
-    return (
-      <WelcomeScreen
-        onEnterCommandCenter={() => setShowWelcome(false)}
-        onStartGuidedDemo={handleStartGuidedDemo}
-      />
-    );
-  }
+  // ───────────── Derivados ─────────────
 
-  const activeAlertsCount = anomalies.filter((a) => a.status === 'active').length;
-  const pendingOfflineCount = offlineReports.filter((r) => r.syncStatus === 'pending').length;
+  const pendingReports = offlineReports.filter((r) => r.syncStatus === 'pending').length;
+  const summary = networkSummary({ nodes, anomalies, diagnoses, orders: workOrders, pendingReports });
   const activeGuidedStep = guidedStepIdx !== null ? GUIDED_STEPS[guidedStepIdx] : null;
+  const goToStep = (i: number) => {
+    setGuidedStepIdx(i);
+    navigate(GUIDED_STEPS[i].view, GUIDED_STEPS[i].tab);
+  };
+
+  const advancedContent = () => {
+    switch (advancedTab) {
+      case 'evidencia':
+        return <VisionIntelligenceView nodes={nodes} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId} visionAnalyses={visionAnalyses} onAnalyzeVision={handleAnalyzeVision} canAnalyze={can(user.role, 'ai:use')} />;
+      case 'ledger':
+        return <TrustLedgerView ledger={ledger} />;
+      case 'conectividad':
+        return (
+          <IntegrationsAndOfflineView
+            role={user.role}
+            isOfflineMode={effectiveOffline}
+            isSimulatedOffline={isOfflineMode}
+            browserOnline={browserOnline}
+            onToggleOfflineMode={() => setIsOfflineMode((v) => !v)}
+            offlineReports={offlineReports}
+            onSyncOfflineReports={handleSyncOfflineReports}
+            onRefreshState={() => void hydrateState()}
+            providerStatus={providerStatus}
+          />
+        );
+      case 'demo':
+        return <DemoPanel scenarios={DIFFERENTIAL_SCENARIOS} role={user.role} busy={isBusy} onTriggerScenario={handleTriggerScenario} onStartDemo={handleRunFrankensteinDemo} onReset={handleResetDemo} />;
+      default:
+        return (
+          <SensorIntelligenceView
+            nodes={nodes}
+            seriesByNode={seriesByNode}
+            anomalies={anomalies}
+            selectedNodeId={selectedNodeId}
+            onSelectNode={setSelectedNodeId}
+            onIngestCsv={handleIngestCsv}
+            isSimulatorRunning={isSimulatorRunning}
+            onToggleSimulator={() => setIsSimulatorRunning((v) => !v)}
+            canIngest={can(user.role, 'telemetry:ingest')}
+          />
+        );
+    }
+  };
+
+  const viewLabel = view === 'home' ? 'Inicio' : view === 'map' ? 'Mapa' : view === 'incidents' ? 'Incidentes' : view === 'orders' ? 'Órdenes de trabajo' : 'Herramientas avanzadas';
 
   return (
-    <div className="min-h-screen bg-[#06131C] text-[#E6F1F5] flex flex-col">
-      {/* 3-Zone Top Bar Contract */}
-      <header className="sticky top-0 z-30 bg-[#06131C]/95 backdrop-blur border-b border-[#18364A] px-3 sm:px-4 lg:px-6 h-14 flex items-center justify-between gap-2 sm:gap-4 lg:gap-8">
-        {/* Zone 1: Brand Title */}
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0 min-w-0">
-          <button
-            type="button"
-            onClick={() => setMobileMenuOpen((v) => !v)}
-            aria-label="Abrir menú de navegación"
-            className="lg:hidden p-1.5 text-slate-300 hover:text-white rounded-md border border-[#18364A] shrink-0"
-          >
-            {mobileMenuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveView('command-center')}
-            className="flex items-center gap-2 text-sm sm:text-base font-semibold tracking-tight text-white whitespace-nowrap shrink-0 cursor-pointer"
-          >
-            <svg
-              width="22"
-              height="22"
-              viewBox="0 0 28 28"
-              fill="none"
-              aria-hidden="true"
-              className="text-cyan-400 shrink-0"
-            >
-              <rect x="2" y="2" width="24" height="24" rx="6" stroke="currentColor" strokeWidth="1.6" />
-              <path
-                d="M14 7C14 7 9 13.2 9 16.5C9 19.26 11.24 21.5 14 21.5C16.76 21.5 19 19.26 19 16.5C19 13.2 14 7 14 7Z"
-                stroke="currentColor"
-                strokeWidth="1.6"
-              />
-            </svg>
-            Aqua Sentinel
-          </button>
-          <span
-            className="hidden sm:inline-flex items-center px-2 py-0.5 text-[11px] font-mono font-semibold text-amber-300 border border-amber-500/40 rounded-md whitespace-nowrap"
-            title="Todas las lecturas de esta red son sintéticas, generadas para la demostración. No son mediciones reales."
-          >
-            DATOS SINTÉTICOS
-          </span>
-        </div>
-
-        {/* Zone 2: 4 concise single-line nav links */}
-        <nav className="hidden md:flex items-center gap-6 text-xs font-medium text-slate-300">
-          {(
-            [
-              ['command-center', 'Command Center'],
-              ['sensors', 'Sensores'],
-              ['aqua-brain', 'Aqua Brain'],
-              ['ledger', 'Trust Ledger'],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setActiveView(id)}
-              className={`py-1 transition-colors whitespace-nowrap shrink-0 cursor-pointer border-b-2 ${
-                activeView === id
-                  ? 'text-cyan-300 border-cyan-400'
-                  : 'text-slate-400 border-transparent hover:text-white'
-              }`}
-            >
-              {label}
+    <AppShell
+      view={view}
+      user={user}
+      connection={{ online, simulatedOffline: isOfflineMode, pendingReports, syncing, lastUpdatedAt }}
+      allSynthetic={summary.allSynthetic}
+      badges={{ incidents: summary.counts.activeIncidents, orders: summary.counts.openOrders }}
+      onNavigate={(v) => {
+        // Tocar un apartado de la barra siempre muestra su lista (en el móvil, no se queda en el detalle anterior).
+        if (v === 'incidents') setSelectedIncidentId(null);
+        if (v === 'orders') setSelectedOrderId(null);
+        navigate(v);
+      }}
+      onLogout={onLogout}
+    >
+      <div className="space-y-6">
+        {persistenceStatus?.mode === 'memory-only' && (
+          <Notice tone="critical" title="El servidor no puede guardar los datos en disco" live="assertive">
+            Los datos solo existen en memoria y se perderán al reiniciar el servidor. Un administrador puede exportar una copia en Herramientas avanzadas → Conexión e integraciones.
+            {persistenceStatus.lastError ? ` Último error: ${persistenceStatus.lastError}` : ''}
+          </Notice>
+        )}
+        {integrity && integrity.status !== 'ok' && (
+          <Notice tone={integrity.status === 'compromised' ? 'critical' : 'attention'} title={integrity.status === 'compromised' ? 'La integridad del registro está comprometida' : 'La comprobación de integridad tiene avisos'} live="assertive">
+            {integrity.issues.slice(0, 2).join(' · ')}{' '}
+            <button type="button" onClick={() => navigate('advanced', 'ledger')} className="cursor-pointer font-semibold text-accent underline">
+              Ver el registro
             </button>
-          ))}
-        </nav>
+          </Notice>
+        )}
 
-        {/* Zone 3: Single Primary Action */}
-        <div className="shrink-0">
-          <button
-            type="button"
-            disabled={isBusy}
-            onClick={handleStartGuidedDemo}
-            className="inline-flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 text-xs font-semibold bg-cyan-500 hover:bg-cyan-400 text-[#041018] rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50"
-          >
-            <Play className="w-3.5 h-3.5 shrink-0" />
-            <span className="hidden sm:inline">Demostración Guiada</span>
-            <span className="sm:hidden">Demo Guiada</span>
-          </button>
-        </div>
-      </header>
-
-      <div className="flex-1 flex relative">
-        {/* Left Navigation Sidebar */}
-        <aside
-          className={`${
-            mobileMenuOpen ? 'fixed inset-y-14 left-0 z-20 block' : 'hidden'
-          } lg:block w-60 shrink-0 bg-[#081722] border-r border-[#18364A] p-4 flex flex-col justify-between`}
-        >
-          <div className="space-y-6">
-            <div className="space-y-1">
-              <p className="px-2.5 pb-1 text-xs font-medium text-slate-400">Operación Hídrica</p>
-              {NAV_ITEMS.map((item) => {
-                const Icon = item.icon;
-                const isActive = activeView === item.id;
-                const badgeCount =
-                  item.id === 'command-center'
-                    ? activeAlertsCount
-                    : item.id === 'work-orders'
-                      ? workOrders.filter((w) => w.status !== 'Cerrada').length
-                      : item.id === 'integrations'
-                        ? pendingOfflineCount
-                        : 0;
-
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => {
-                      setActiveView(item.id);
-                      setMobileMenuOpen(false);
-                    }}
-                    className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
-                      isActive
-                        ? 'bg-[#0F2736] text-cyan-300 border border-[#234C66]'
-                        : 'text-slate-300 hover:bg-[#0B202E] hover:text-white border border-transparent'
-                    }`}
-                  >
-                    <span className="flex items-center gap-2.5 truncate">
-                      <Icon className="w-4 h-4 shrink-0" />
-                      <span className="truncate">{item.label}</span>
-                    </span>
-                    {badgeCount > 0 && (
-                      <span className="font-mono text-xs text-cyan-300 tabular-nums">
-                        {badgeCount}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+        {activeGuidedStep && guidedStepIdx !== null && (
+          <section aria-label="Demostración guiada" className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-accent/40 bg-accent/5 px-4 py-3">
+            <div className="min-w-0 flex-1 space-y-0.5">
+              <p className="text-xs font-bold uppercase tracking-wider text-accent">
+                Demostración · paso {guidedStepIdx + 1} de {GUIDED_STEPS.length}: {activeGuidedStep.title}
+              </p>
+              <p className="text-sm text-soft">{activeGuidedStep.hint}</p>
             </div>
-
-            <div className="pt-4 border-t border-[#18364A] px-2 space-y-2 text-xs">
-              <div className="text-slate-400">Red activa</div>
-              <div className="font-medium text-slate-200">San Cristóbal de las Aguas</div>
-              <div className="text-slate-400 font-mono">
-                {effectiveOffline ? '▲ Modo Offline Local' : '● Enlace Activo'}
-              </div>
+            <div className="flex gap-2">
+              {guidedStepIdx > 0 && (
+                <Button variant="ghost" onClick={() => goToStep(guidedStepIdx - 1)}>
+                  Anterior
+                </Button>
+              )}
+              {guidedStepIdx < GUIDED_STEPS.length - 1 ? (
+                <Button variant="primary" onClick={() => goToStep(guidedStepIdx + 1)}>
+                  Siguiente
+                </Button>
+              ) : (
+                <Button variant="primary" onClick={() => setGuidedStepIdx(null)}>
+                  Terminar
+                </Button>
+              )}
             </div>
-          </div>
-        </aside>
+          </section>
+        )}
 
-        {/* Main Content Viewport */}
-        <main className="flex-1 min-w-0 p-4 lg:p-6 max-w-[1320px] w-full mx-auto space-y-5">
-          {persistenceStatus?.mode === 'memory-only' && (
-            <div role="alert" className="px-4 py-2.5 rounded-lg bg-[#2A1B08] border border-amber-500/60 text-xs text-amber-200">
-              El servidor no puede escribir su estado en disco: los datos solo existen en memoria y se perderán al reiniciarlo. Exporta un snapshot desde «Offline e Integraciones».
-              {persistenceStatus.lastError ? ` Último error: ${persistenceStatus.lastError}` : ''}
-            </div>
-          )}
-          {integrity && integrity.status !== 'ok' && (
-            <div role="alert" className={`px-4 py-2.5 rounded-lg border text-xs ${integrity.status === 'compromised' ? 'bg-[#2A0B14] border-rose-500/60 text-rose-200' : 'bg-[#2A1B08] border-amber-500/60 text-amber-200'}`}>
-              Integridad del estado: <strong>{integrity.status === 'compromised' ? 'COMPROMETIDA' : 'con avisos'}</strong>. {integrity.issues.slice(0, 2).join(' · ')}
-            </div>
-          )}
+        {toastMsg && (
+          <Notice tone="neutral" onClose={() => setToastMsg(null)}>
+            {toastMsg}
+          </Notice>
+        )}
 
-          {/* Guided Demo Interactive Stepper */}
-          {activeGuidedStep && (
-            <div className="bg-[#0A2231] border border-cyan-500/40 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
-              <div className="space-y-0.5">
-                <div className="text-xs font-mono text-cyan-300">
-                  Demostración Guiada · Paso {activeGuidedStep.step} de {GUIDED_STEPS.length}:{' '}
-                  {activeGuidedStep.title}
-                </div>
-                <p className="text-xs text-slate-200">{activeGuidedStep.hint}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                {guidedStepIdx! > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const prev = guidedStepIdx! - 1;
-                      setGuidedStepIdx(prev);
-                      setActiveView(GUIDED_STEPS[prev].view);
-                    }}
-                    className="px-3 py-1.5 text-xs font-medium bg-[#06131C] text-slate-200 border border-[#234C66] rounded-lg cursor-pointer whitespace-nowrap"
-                  >
-                    Anterior
-                  </button>
-                )}
-                {guidedStepIdx! < GUIDED_STEPS.length - 1 ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = guidedStepIdx! + 1;
-                      setGuidedStepIdx(next);
-                      setActiveView(GUIDED_STEPS[next].view);
-                    }}
-                    className="px-3.5 py-1.5 text-xs font-semibold bg-cyan-500 hover:bg-cyan-400 text-[#041018] rounded-lg cursor-pointer whitespace-nowrap"
-                  >
-                    Siguiente Paso
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setGuidedStepIdx(null)}
-                    className="px-3.5 py-1.5 text-xs font-semibold bg-emerald-500 text-[#04140E] rounded-lg cursor-pointer whitespace-nowrap"
-                  >
-                    Finalizar Guía
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {toastMsg && (
-            <div
-              role="status"
-              className="px-4 py-2.5 rounded-lg bg-[#0B2636] border border-cyan-500/40 text-xs text-cyan-200 flex items-center justify-between gap-3"
-            >
-              <span>{toastMsg}</span>
-              <button
-                type="button"
-                onClick={() => setToastMsg(null)}
-                className="text-slate-400 hover:text-white cursor-pointer"
-                aria-label="Cerrar notificación"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
-
-          <ErrorBoundary scope={NAV_ITEMS.find((n) => n.id === activeView)?.label} resetKey={activeView}>
-          {activeView === 'command-center' && (
-            <CommandCenterView
+        <ErrorBoundary scope={viewLabel} resetKey={`${view}-${advancedTab}`}>
+          {view === 'home' && (
+            <HomeView
               nodes={nodes}
-              pipes={NETWORK_PIPES}
               anomalies={anomalies}
-              hydraulic={hydraulic}
-              scenarios={DIFFERENTIAL_SCENARIOS}
-              selectedNodeId={selectedNodeId}
-              onSelectNode={setSelectedNodeId}
-              onTriggerScenario={handleTriggerScenario}
-              onResetDemo={handleResetDemo}
-              onNavigateToView={(v) => setActiveView(v)}
-              isBusy={isBusy}
-            />
-          )}
-
-          {activeView === 'sensors' && (
-            <SensorIntelligenceView
-              nodes={nodes}
-              seriesByNode={seriesByNode}
-              anomalies={anomalies}
-              selectedNodeId={selectedNodeId}
-              onSelectNode={setSelectedNodeId}
-              onIngestCsv={handleIngestCsv}
-              isSimulatorRunning={isSimulatorRunning}
-              onToggleSimulator={() => setIsSimulatorRunning((v) => !v)}
-            />
-          )}
-
-          {activeView === 'vision' && (
-            <VisionIntelligenceView
-              nodes={nodes}
-              selectedNodeId={selectedNodeId}
-              onSelectNode={setSelectedNodeId}
-              visionAnalyses={visionAnalyses}
-              onAnalyzeVision={handleAnalyzeVision}
-            />
-          )}
-
-          {activeView === 'aqua-brain' && (
-            <AquaBrainView
               diagnoses={diagnoses}
-              anomalies={anomalies}
-              hydraulic={hydraulic}
-              visionAnalyses={visionAnalyses}
-              selectedNodeId={selectedNodeId}
-              onGenerateDiagnosis={handleGenerateDiagnosis}
-              onDecideDiagnosis={handleDecideDiagnosis}
-              onNavigateToWorkOrders={() => setActiveView('work-orders')}
+              workOrders={workOrders}
+              seriesByNode={seriesByNode}
+              pendingReports={pendingReports}
+              online={online}
+              syncing={syncing}
+              loading={loading}
+              loadError={loadError}
+              lastUpdatedAt={lastUpdatedAt}
+              role={user.role}
+              onOpenIncident={openIncident}
+              onOpenOrder={openOrder}
+              onSyncReports={() => void handleSyncOfflineReports()}
+              onNavigate={(v) => navigate(v)}
+              onReport={() => setReportOpen(true)}
+              onRetry={() => void hydrateState()}
+              onStartDemo={can(user.role, 'destructive:demo') ? () => void handleRunFrankensteinDemo() : undefined}
             />
           )}
-
-          {activeView === 'work-orders' && (
+          {view === 'map' && (
+            <MapView nodes={nodes} pipes={NETWORK_PIPES} anomalies={anomalies} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId} onOpenIncident={openIncident} onOpenAdvanced={(tab) => navigate('advanced', tab)} />
+          )}
+          {view === 'incidents' && (
+            <IncidentsView
+              nodes={nodes}
+              anomalies={anomalies}
+              diagnoses={diagnoses}
+              visionAnalyses={visionAnalyses}
+              workOrders={workOrders}
+              hydraulic={hydraulic}
+              role={user.role}
+              loading={loading}
+              selectedId={selectedIncidentId}
+              onSelect={setSelectedIncidentId}
+              onGenerateDiagnosis={handleGenerateDiagnosis}
+              onDecide={handleDecideDiagnosis}
+              onAddPhoto={handleAddIncidentPhoto}
+              onOpenOrder={openOrder}
+              onReport={() => setReportOpen(true)}
+              onOpenAdvanced={() => navigate('advanced', 'ledger')}
+            />
+          )}
+          {view === 'orders' && (
             <WorkOrdersView
               workOrders={workOrders}
+              nodes={nodes}
+              seriesByNode={seriesByNode}
+              role={user.role}
+              loading={loading}
+              selectedId={selectedOrderId}
+              onSelect={setSelectedOrderId}
               onUpdateOrder={handleUpdateWorkOrder}
               onAssignOrder={handleAssignOrder}
               onToggleChecklist={handleToggleChecklist}
               onUploadEvidence={handleUploadEvidence}
               onDownloadDossier={handleDownloadDossier}
-              onNavigateToLedger={() => setActiveView('ledger')}
+              onOpenLedger={() => navigate('advanced', 'ledger')}
+              onOpenIncident={openIncident}
             />
           )}
-
-          {activeView === 'ledger' && <TrustLedgerView ledger={ledger} />}
-
-          {activeView === 'integrations' && (
-            <IntegrationsAndOfflineView
-              nodes={nodes}
-              isOfflineMode={effectiveOffline}
-              isSimulatedOffline={isOfflineMode}
-              browserOnline={browserOnline}
-              onToggleOfflineMode={() => setIsOfflineMode((v) => !v)}
-              offlineReports={offlineReports}
-              onCreateOfflineReport={handleCreateOfflineReport}
-              onSyncOfflineReports={handleSyncOfflineReports}
-              providerStatus={providerStatus}
-              onRefreshState={hydrateState}
-            />
+          {view === 'advanced' && (
+            <AdvancedView tab={advancedTab} onTab={(t) => navigate('advanced', t)} role={user.role}>
+              {advancedContent()}
+            </AdvancedView>
           )}
-          </ErrorBoundary>
-        </main>
+        </ErrorBoundary>
       </div>
-    </div>
+
+      <ReportIssueSheet open={reportOpen} nodes={nodes} reporterName={user.displayName} online={online} defaultNodeId={selectedNodeId} onSave={handleCreateOfflineReport} onClose={() => setReportOpen(false)} />
+    </AppShell>
   );
 }

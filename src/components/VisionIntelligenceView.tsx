@@ -8,6 +8,8 @@ interface VisionIntelligenceViewProps {
   selectedNodeId: string;
   onSelectNode: (nodeId: string) => void;
   visionAnalyses: VisionAnalysisResult[];
+  /** Solo OPERATOR y ADMIN pueden pedir anÃ¡lisis; el servidor lo exige igualmente. */
+  canAnalyze?: boolean;
   onAnalyzeVision: (payload: {
     nodeId: string;
     imageUrl: string;
@@ -44,6 +46,7 @@ export const VisionIntelligenceView: React.FC<VisionIntelligenceViewProps> = ({
   onSelectNode,
   visionAnalyses,
   onAnalyzeVision,
+  canAnalyze = true,
 }) => {
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? nodes[0];
   const latestForNode = visionAnalyses.find((v) => v.nodeId === selectedNode.id) ?? null;
@@ -163,7 +166,7 @@ export const VisionIntelligenceView: React.FC<VisionIntelligenceViewProps> = ({
 
           <button
             type="button"
-            disabled={analyzing}
+            disabled={analyzing || !canAnalyze}
             onClick={handleRunAnalysis}
             className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold bg-cyan-500 hover:bg-cyan-400 text-[#041018] rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50"
           >

@@ -35,7 +35,7 @@ function collectTestFiles(dir: string): string[] {
     const stat = fs.statSync(full);
     if (stat.isDirectory()) {
       results.push(...collectTestFiles(full));
-    } else if (entry.endsWith('.test.ts')) {
+    } else if (entry.endsWith('.test.ts') || entry.endsWith('.test.tsx')) {
       results.push(path.relative(ROOT, full).replace(/\\/g, '/'));
     }
   }
@@ -86,7 +86,7 @@ function validateSpecsAndTraceability(hook: VerifyIntegrityHook): string[] {
         if (!fs.existsSync(absPath)) {
           fail(`Archivo referenciado en ${file} no existe: ${relPath}`);
         }
-        if (relPath.endsWith('.test.ts')) {
+        if (relPath.endsWith('.test.ts') || relPath.endsWith('.test.tsx')) {
           referencedTestFiles.add(relPath);
         }
       }
@@ -95,7 +95,7 @@ function validateSpecsAndTraceability(hook: VerifyIntegrityHook): string[] {
 
   const diskTests = collectTestFiles(path.resolve(ROOT, 'src'));
   const unitCheckCmd = hook.checks.map((c) => c.command).join(' ');
-  const coversAll = unitCheckCmd.includes('src/**/*.test.ts');
+  const coversAll = unitCheckCmd.includes('src/**/*.test.ts') && unitCheckCmd.includes('src/**/*.test.tsx');
   if (diskTests.length === 0) fail('No hay archivos de prueba en src/.');
   for (const testFile of diskTests) {
     if (!coversAll && !unitCheckCmd.includes(testFile)) {

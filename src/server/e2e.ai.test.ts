@@ -1,7 +1,7 @@
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { admin, ADMIN_TOKEN, api, RunningServer, sleep, startServer, waitFor } from './testing/harness';
+import { admin, api, RunningServer, sleep, startServer, waitFor } from './testing/harness';
 
 /**
  * Manejo de errores de la capa de IA contra un endpoint de Gemini SIMULADO (src/server/testing/fakeGemini.mjs).
@@ -17,7 +17,7 @@ const count = (ledger: any[], action: string) => ledger.filter((e) => e.action =
 before(async () => {
   srv = await startServer({
     fakeGemini: true,
-    env: { AQUA_ADMIN_TOKEN: ADMIN_TOKEN, GEMINI_TIMEOUT_MS: '300', GEMINI_TOTAL_BUDGET_MS: '1200' },
+    env: { GEMINI_TIMEOUT_MS: '300', GEMINI_TOTAL_BUDGET_MS: '1200' },
   });
 });
 after(async () => {
@@ -27,7 +27,7 @@ after(async () => {
 async function fresh(mode: string) {
   srv.setMode(mode);
   fs.writeFileSync(srv.geminiLog, '');
-  assert.equal((await post('/api/reset', {}, admin('reset'))).status, 200);
+  assert.equal((await post('/api/reset', {}, await admin('reset'))).status, 200);
 }
 async function trigger() {
   const r = await post('/api/scenarios/leak/trigger');
@@ -105,7 +105,7 @@ test('REQ-AI-04: Gemini colgado → respaldo por tiempo límite dentro del presu
 test('REQ-AI-06: un reset durante una llamada pendiente descarta la respuesta tardía: sin entradas fantasma en el ledger nuevo', async () => {
   await fresh('hang');
   await trigger();
-  assert.equal((await post('/api/reset', {}, admin('reset'))).status, 200);
+  assert.equal((await post('/api/reset', {}, await admin('reset'))).status, 200);
   srv.setMode('ok'); // aunque la IA responda bien después, la época cambió
   await sleep(7500); // más que presupuesto + vigilante
   const ledger = await ledgerOf();
@@ -118,7 +118,7 @@ test('REQ-AI-06: un reset durante una llamada pendiente descarta la respuesta ta
 test('REQ-DEMO-01: el modo demo con clave presente no llama a Gemini (ai_disabled) y el log del endpoint queda vacío', async () => {
   srv.setMode('ok');
   fs.writeFileSync(srv.geminiLog, '');
-  const r = await post('/api/demo/frankenstein', {}, admin('demo'));
+  const r = await post('/api/demo/frankenstein', {}, await admin('demo'));
   assert.equal(r.status, 200);
   assert.equal(r.data.aiEnrichmentStatus, 'complete');
   assert.equal(r.data.diagnosis.providerMode, 'fallback-adapter');

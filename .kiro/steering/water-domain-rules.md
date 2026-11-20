@@ -12,6 +12,13 @@
 
 10. **Sin confianza numérica sin calibración**: no se muestran porcentajes de confianza; se usa un nivel de respaldo (baja/media/alta/en_conflicto) derivado de canales realmente medidos y vinculados al incidente.
 11. **Separación simulación/diagnóstico**: src/sim/ genera escenarios y verdad de terreno; src/core/ diagnostica y nunca importa src/sim/ (lo hace cumplir src/architecture.test.ts).
-12. **Operaciones destructivas protegidas**: reset, demo e import exigen confirmación explícita y autorización (AQUA_ADMIN_TOKEN o habilitación expresa) y archivan el estado previo.
+12. **Operaciones destructivas protegidas**: reset, demo e import exigen confirmación explícita y reautenticación, token de un solo uso y auditoría previa, y archivan el estado previo.
 13. **Integridad no es autenticidad**: un ledger con cadena válida prueba integridad interna; la autenticidad exige una clave fijada por el verificador y la inmutabilidad nunca se garantiza.
 14. **Integraciones sin validar se declaran**: Gemini (texto y visión) permanece "no validado" hasta probarse con credenciales reales; los endpoints simulados solo se usan en pruebas de manejo de errores.
+15. **Identidad verificable**: ninguna acción de usuario se atribuye a un nombre declarado por el cliente; el actor sale de la sesión autenticada y los nombres declarados se guardan aparte como no verificados.
+16. **Denegación por defecto**: toda ruta exige sesión y declara su permiso; los controles se aplican en el servidor, nunca solo en la interfaz.
+17. **Operaciones destructivas**: solo ADMIN, con reautenticación, token de un solo uso, confirmación explícita, autorización auditada antes de ejecutar y copia del estado anterior; si algo falla, no se ejecutan.
+18. **Límites de la auditoría**: la cadena de hashes y la firma local detectan alteraciones de terceros, no garantizan inmutabilidad frente a quien controla el servidor; no se debe afirmar lo contrario.
+19. **Sin secretos en logs, archivos de datos ni respuestas**: contraseñas, tokens de sesión, CSRF, de operación, claves de IA y clave privada de sellado.
+20. **Procedencia visible**: la interfaz rotula cada dato como medido, declarado, inferido, hipótesis de IA o simulado; una hipótesis nunca se presenta como hecho y un dato simulado nunca como dato de campo.
+21. **Sin recuperación sin medición**: un punto no se muestra como recuperado hasta que existan mediciones reales posteriores al cierre de su orden.

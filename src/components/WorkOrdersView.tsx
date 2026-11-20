@@ -1,82 +1,46 @@
 import React, { useRef, useState } from 'react';
-import {
-  Camera,
-  CheckCircle2,
-  ClipboardList,
-  Download,
-  PlayCircle,
-  ShieldCheck,
-  UserCog,
-} from 'lucide-react';
+import { ArrowLeft, Camera, CheckCircle2, ClipboardList, Download, Hourglass, PlayCircle, ShieldCheck, UserCog } from 'lucide-react';
+import { prepareImage } from '../client/image';
+import { can, Role, ROLE_LABEL } from '../core/permissions';
 import { closureBlockers, ensureChecklist } from '../core/workOrders';
-import { SmartWorkOrder, WorkOrderStatus } from '../core/types';
+import { NetworkNode, SmartWorkOrder, TelemetryReading, WorkOrderStatus } from '../core/types';
+import { HEALTH_META, orderVerification, timeAgo, urgency } from '../ui/vocab';
+import { Button, ConfirmDialog, Disclosure, EmptyState, Notice, Question, Skeleton, StatusPill, TONE } from './ui';
 
-interface WorkOrdersViewProps {
+export interface WorkOrdersViewProps {
   workOrders: SmartWorkOrder[];
-  onUpdateOrder: (
-    orderId: string,
-    payload: { status: WorkOrderStatus; closureNotes?: string; closureEvidenceLabel?: string }
-  ) => Promise<void>;
+  nodes: NetworkNode[];
+  seriesByNode: Record<string, TelemetryReading[]>;
+  role: Role;
+  loading: boolean;
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
+  onUpdateOrder: (orderId: string, payload: { status: WorkOrderStatus; closureNotes?: string; closureEvidenceLabel?: string }) => Promise<void>;
   onAssignOrder: (orderId: string, assignee: string) => Promise<void>;
   onToggleChecklist: (orderId: string, itemId: string, done: boolean) => Promise<void>;
   onUploadEvidence: (orderId: string, fileName: string, dataUrl: string) => Promise<void>;
   onDownloadDossier: (orderId: string) => Promise<void>;
-  onNavigateToLedger: () => void;
+  onOpenLedger: () => void;
+  onOpenIncident: (anomalyId: string) => void;
 }
 
-const MAX_DIM = 1600;
-const RESIZE_THRESHOLD_BYTES = 1.5 * 1024 * 1024;
+const STATUS_LABEL: Record<WorkOrderStatus, string> = { Abierta: 'Por iniciar', 'En Progreso': 'En curso', Cerrada: 'Cerrada' };
 
-function readAsDataUrl(file: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error('No se pudo leer el archivo.'));
-    reader.readAsDataURL(file);
-  });
-}
-
-/** Las fotos de celular pesan varios MB; se reducen a 1600 px (JPEG) antes de subirlas. El hash sellado es el de la imagen enviada. */
-async function prepareEvidence(file: File): Promise<string> {
-  if (!/^image\/(jpeg|png|webp)$/.test(file.type)) {
-    throw new Error('Formato no permitido. Usa JPEG, PNG o WebP.');
-  }
-  if (file.size <= RESIZE_THRESHOLD_BYTES) return readAsDataUrl(file);
-  const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, MAX_DIM / Math.max(bitmap.width, bitmap.height));
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.round(bitmap.width * scale);
-  canvas.height = Math.round(bitmap.height * scale);
-  canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  const blob: Blob | null = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.85));
-  if (!blob) throw new Error('No se pudo comprimir la imagen.');
-  return readAsDataUrl(blob);
-}
-
-const statusColor = (s: WorkOrderStatus) =>
-  s === 'Cerrada' ? 'text-emerald-400' : s === 'En Progreso' ? 'text-amber-400' : 'text-rose-400';
-
-export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
-  workOrders,
-  onUpdateOrder,
-  onAssignOrder,
-  onToggleChecklist,
-  onUploadEvidence,
-  onDownloadDossier,
-  onNavigateToLedger,
-}) => {
-  const [filter, setFilter] = useState<'Todas' | WorkOrderStatus>('Todas');
-  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
-  const [closureNotes, setClosureNotes] = useState('');
-  const [assigneeDraft, setAssigneeDraft] = useState('');
+export const WorkOrdersView: React.FC<WorkOrdersViewProps> = (p) => {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notes, setNotes] = useState('');
+  const [assignee, setAssignee] = useState('');
+  const [changingAssignee, setChangingAssignee] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
+  // Marcas optimistas: la casilla responde al instante y se revierte si el servidor rechaza el cambio.
+  const [optimistic, setOptimistic] = useState<Record<string, boolean>>({});
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const filtered = workOrders.filter((w) => (filter === 'Todas' ? true : w.status === filter));
-  const selectedRaw =
-    workOrders.find((w) => w.id === selectedOrderId) ?? filtered[0] ?? workOrders[0] ?? null;
-  const selectedOrder = selectedRaw ? ensureChecklist(selectedRaw) : null;
+  const rank = (o: SmartWorkOrder) => (o.status === 'Cerrada' ? 1 : 0);
+  const sorted = [...p.workOrders].sort((a, b) => rank(a) - rank(b) || b.createdAt.localeCompare(a.createdAt));
+  const selectedRaw = p.workOrders.find((o) => o.id === p.selectedId) ?? null;
+  const order = selectedRaw ? ensureChecklist(selectedRaw) : null;
 
   const run = async (key: string, fn: () => Promise<void>) => {
     setBusy(key);
@@ -84,395 +48,342 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
     try {
       await fn();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error inesperado.');
+      setError(e instanceof Error ? e.message : 'No se pudo completar la acción.');
     } finally {
       setBusy(null);
     }
   };
 
-  const blockers = selectedOrder ? closureBlockers(selectedOrder) : [];
-  const checklist = selectedOrder?.checklist ?? [];
-  const doneCount = checklist.filter((c) => c.done).length;
-  const isClosed = selectedOrder?.status === 'Cerrada';
+  if (p.loading) {
+    return (
+      <div className="space-y-4" aria-busy="true" aria-label="Cargando órdenes de trabajo">
+        <Skeleton className="h-10 w-72" />
+        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-24 w-full" />
+      </div>
+    );
+  }
+
+  const mayWrite = can(p.role, 'order:write');
+  const mayPhoto = can(p.role, 'order:evidence');
+  const mayExport = can(p.role, 'dossier:export');
 
   return (
     <div className="space-y-6">
-      <section className="bg-[#0A1D29] border border-[#18364A] rounded-xl p-5 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-semibold text-white">Órdenes de Trabajo Inteligentes</h2>
-          <p className="text-xs text-slate-400 mt-1 max-w-2xl">
-            Cada orden nace de un diagnóstico aprobado. Se cierra solo con checklist completo y una
-            fotografía de cierre; cada acción queda sellada en el Trust Ledger.
-          </p>
-        </div>
+      <header className="space-y-1">
+        <h1 className="font-display text-2xl font-semibold text-ink">Órdenes de trabajo</h1>
+        <p className="text-base text-soft">Cada orden nace de una recomendación aceptada. Se cierra con la lista de tareas completa y una foto.</p>
+      </header>
 
-        <div className="flex items-center gap-1 p-1 bg-[#06131C] border border-[#18364A] rounded-lg" role="group" aria-label="Filtrar órdenes por estado">
-          {(['Todas', 'Abierta', 'En Progreso', 'Cerrada'] as const).map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              aria-pressed={filter === tab}
-              onClick={() => setFilter(tab)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                filter === tab ? 'bg-[#0F2736] text-cyan-300' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {tab}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      {!selectedOrder ? (
-        <section className="bg-[#0A1D29] border border-dashed border-[#18364A] rounded-xl p-12 text-center space-y-2">
-          <ClipboardList className="w-7 h-7 text-cyan-400 mx-auto" />
-          <h3 className="text-base font-semibold text-white">No hay órdenes de trabajo emitidas</h3>
-          <p className="text-xs text-slate-400 max-w-md mx-auto">
-            Aprueba una recomendación en Aqua Brain para generar una orden con checklist, responsable
-            y cierre verificable.
-          </p>
-        </section>
-      ) : (
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
-          <aside className="xl:col-span-4 bg-[#0A1D29] border border-[#18364A] rounded-xl p-4 space-y-2" aria-label="Lista de órdenes">
-            {filtered.length === 0 && (
-              <p className="text-xs text-slate-400 p-2">Ninguna orden con estado «{filter}».</p>
-            )}
-            {filtered.map((order) => {
-              const o = ensureChecklist(order);
-              const done = o.checklist!.filter((c) => c.done).length;
-              return (
-                <button
-                  key={order.id}
-                  type="button"
-                  aria-pressed={selectedOrder.id === order.id}
-                  onClick={() => {
-                    setSelectedOrderId(order.id);
-                    setError(null);
-                    setAssigneeDraft('');
-                  }}
-                  className={`w-full text-left p-3.5 rounded-lg border transition-colors cursor-pointer ${
-                    selectedOrder.id === order.id
-                      ? 'bg-[#0F2736] border-cyan-400'
-                      : 'bg-[#06131C] border-[#18364A] hover:border-[#234C66]'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2 text-xs font-mono">
-                    <span className="text-cyan-300 font-semibold">{order.id}</span>
-                    <span className={statusColor(order.status)}>{order.status}</span>
-                  </div>
-                  <div className="text-sm font-medium text-white mt-1">{order.location}</div>
-                  <div className="text-xs text-slate-400 mt-1">
-                    Prioridad {order.priority} · {order.assignee}
-                  </div>
-                  <div className="text-xs text-slate-400 mt-1 font-mono tabular-nums">
-                    Checklist {done}/{o.checklist!.length}
-                    {order.closureEvidence ? ' · foto ✓' : ''}
-                  </div>
-                </button>
-              );
-            })}
-          </aside>
-
-          <section className="xl:col-span-8 bg-[#0A1D29] border border-[#18364A] rounded-xl p-6 space-y-6">
-            <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#18364A] pb-4">
-              <div>
-                <div className="flex items-center gap-2 text-xs font-mono text-cyan-400">
-                  <span>{selectedOrder.id}</span>
-                  <span aria-hidden="true">·</span>
-                  <span>{selectedOrder.assetName}</span>
-                </div>
-                <h3 className="text-lg font-semibold text-white mt-1">{selectedOrder.location}</h3>
-                <p className="text-xs text-slate-400 mt-1">
-                  Responsable: <span className="text-slate-200">{selectedOrder.assignee}</span> ·
-                  Prioridad: <span className="text-rose-400 font-semibold">{selectedOrder.priority}</span>
-                </p>
-              </div>
-              <div className="text-right text-xs font-mono">
-                <div className={`font-semibold ${statusColor(selectedOrder.status)}`}>
-                  Estado: {selectedOrder.status}
-                </div>
-                <div className="text-slate-400 mt-1">
-                  Actualizada: {new Date(selectedOrder.updatedAt).toLocaleTimeString('es-ES')}
-                </div>
-              </div>
-            </div>
-
-            {error && (
-              <div role="alert" className="px-4 py-2.5 rounded-lg bg-[#2A0B14] border border-rose-500/50 text-xs text-rose-200">
-                {error}
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="p-4 rounded-lg bg-[#06131C] border border-[#18364A] space-y-2">
-                <h4 className="text-xs font-semibold text-cyan-300 uppercase tracking-wider">
-                  Causa Probable y Evidencias
-                </h4>
-                <p className="text-xs text-slate-100 leading-relaxed">{selectedOrder.probableCause}</p>
-                <ul className="space-y-1 text-xs text-slate-400 list-disc pl-4 pt-1">
-                  {selectedOrder.evidenceSummary.map((e, i) => (
-                    <li key={i}>{e}</li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="p-4 rounded-lg bg-[#06131C] border border-[#18364A] space-y-2">
-                <h4 className="text-xs font-semibold text-amber-300 uppercase tracking-wider">
-                  Recursos Necesarios
-                </h4>
-                <ul className="space-y-1.5 text-xs text-slate-300 list-disc pl-4">
-                  {selectedOrder.requiredResources.map((r, i) => (
-                    <li key={i}>{r}</li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-
-            {/* M-10: responsable */}
-            {!isClosed && (
-              <form
-                className="p-4 rounded-lg bg-[#06131C] border border-[#18364A] flex flex-wrap items-end gap-3"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const value = assigneeDraft.trim();
-                  if (!value) return;
-                  void run('assign', async () => {
-                    await onAssignOrder(selectedOrder.id, value);
-                    setAssigneeDraft('');
-                  });
-                }}
-              >
-                <div className="flex-1 min-w-[200px]">
-                  <label htmlFor="wo-assignee" className="flex items-center gap-1.5 text-xs font-semibold text-slate-300 mb-1.5">
-                    <UserCog className="w-3.5 h-3.5 text-cyan-400" />
-                    Reasignar responsable
-                  </label>
-                  <input
-                    id="wo-assignee"
-                    type="text"
-                    maxLength={80}
-                    value={assigneeDraft}
-                    onChange={(e) => setAssigneeDraft(e.target.value)}
-                    placeholder={selectedOrder.assignee}
-                    className="w-full px-3 py-2 text-xs bg-[#071824] text-white border border-[#18364A] rounded-lg focus:outline-none focus:border-cyan-400"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  disabled={busy !== null || assigneeDraft.trim().length < 2}
-                  className="px-4 py-2 text-xs font-semibold bg-cyan-500 hover:bg-cyan-400 text-[#041018] rounded-lg cursor-pointer whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {busy === 'assign' ? 'Asignando…' : 'Asignar'}
-                </button>
-              </form>
-            )}
-
-            {/* M-10: checklist */}
-            <div className="p-4 rounded-lg bg-[#06131C] border border-[#18364A] space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                  Checklist de Ejecución en Campo
-                </h4>
-                <span className="text-xs font-mono text-slate-400 tabular-nums">
-                  {doneCount}/{checklist.length} completados
-                </span>
-              </div>
-              <div
-                className="h-1.5 rounded-full bg-[#0F2736] overflow-hidden"
-                role="progressbar"
-                aria-valuemin={0}
-                aria-valuemax={checklist.length}
-                aria-valuenow={doneCount}
-                aria-label="Avance del checklist"
-              >
-                <div
-                  className="h-full bg-emerald-400 transition-all"
-                  style={{ width: `${checklist.length ? (doneCount / checklist.length) * 100 : 0}%` }}
-                />
-              </div>
-              <ul className="space-y-2">
-                {checklist.map((item) => (
-                  <li key={item.id}>
-                    <label
-                      className={`flex items-start gap-3 p-2.5 rounded-lg border text-xs transition-colors ${
-                        item.done ? 'bg-[#07211D] border-emerald-500/30' : 'bg-[#071824] border-[#18364A]'
-                      } ${isClosed ? 'opacity-80' : 'cursor-pointer hover:border-[#234C66]'}`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={item.done}
-                        disabled={isClosed || busy !== null}
-                        onChange={(e) =>
-                          void run(`ck-${item.id}`, () =>
-                            onToggleChecklist(selectedOrder.id, item.id, e.target.checked)
-                          )
-                        }
-                        className="mt-0.5 h-4 w-4 accent-emerald-500 shrink-0"
-                      />
-                      <span className="flex-1 min-w-0">
-                        <span className={item.done ? 'text-slate-300' : 'text-slate-100'}>{item.label}</span>
-                        {item.done && item.doneAt && (
-                          <span className="block text-slate-400 font-mono mt-0.5">
-                            ✓ {item.doneBy} · {new Date(item.doneAt).toLocaleTimeString('es-ES')}
-                          </span>
-                        )}
+      <div className="grid gap-8 lg:grid-cols-[340px_1fr]">
+        <section aria-label="Lista de órdenes" className={order ? 'hidden lg:block' : ''}>
+          {sorted.length === 0 ? (
+            <EmptyState icon={<ClipboardList className="h-8 w-8" />} title="Todavía no hay órdenes de trabajo">
+              Se crean al aceptar la recomendación de un incidente.
+            </EmptyState>
+          ) : (
+            <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface">
+              {sorted.map((raw) => {
+                const o = ensureChecklist(raw);
+                const done = o.checklist!.filter((c) => c.done).length;
+                const v = orderVerification(o, p.seriesByNode[o.nodeId]);
+                const u = urgency(o.priority);
+                return (
+                  <li key={o.id}>
+                    <button type="button" aria-current={o.id === p.selectedId ? 'true' : undefined} onClick={() => { p.onSelect(o.id); setError(null); setChangingAssignee(false); }} className={`flex min-h-16 w-full cursor-pointer flex-col gap-1.5 px-4 py-3.5 text-left hover:bg-raised/60 ${o.id === p.selectedId ? 'bg-raised' : ''}`}>
+                      <span className="flex items-center justify-between gap-3">
+                        <span className="text-base font-medium text-ink">{o.location.split(' · ')[0]}</span>
+                        {o.status !== 'Cerrada' ? <StatusPill tone={u.tone} label={u.label} className="shrink-0" /> : v.state === 'pending' ? <StatusPill tone="verifying" label="Por verificar" className="shrink-0" /> : <StatusPill tone="ok" label="Cerrada" className="shrink-0" />}
                       </span>
-                    </label>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            {/* M-10: evidencia fotográfica */}
-            <div className="p-4 rounded-lg bg-[#06131C] border border-[#18364A] space-y-3">
-              <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                Evidencia Fotográfica de Cierre
-              </h4>
-              {selectedOrder.closureEvidence ? (
-                <div className="flex flex-wrap items-start gap-4">
-                  <img
-                    src={`/api/evidence/${selectedOrder.closureEvidence.sha256}`}
-                    alt={`Evidencia de cierre de ${selectedOrder.id}: ${selectedOrder.closureEvidence.fileName}`}
-                    className="w-40 h-28 object-cover rounded-lg border border-[#234C66] bg-[#071824]"
-                  />
-                  <dl className="text-xs space-y-1 min-w-0">
-                    <div><dt className="inline text-slate-400">Archivo: </dt><dd className="inline text-slate-200">{selectedOrder.closureEvidence.fileName}</dd></div>
-                    <div><dt className="inline text-slate-400">Tamaño: </dt><dd className="inline text-slate-200">{(selectedOrder.closureEvidence.sizeBytes / 1024).toFixed(1)} KB</dd></div>
-                    <div className="break-all"><dt className="inline text-slate-400">SHA-256: </dt><dd className="inline font-mono text-cyan-300">{selectedOrder.closureEvidence.sha256}</dd></div>
-                    <div><dt className="inline text-slate-400">Adjuntada por: </dt><dd className="inline text-slate-200">{selectedOrder.closureEvidence.attachedBy} · {new Date(selectedOrder.closureEvidence.attachedAt).toLocaleTimeString('es-ES')}</dd></div>
-                  </dl>
-                </div>
-              ) : (
-                <p className="text-xs text-slate-400">Aún no hay foto de cierre. Es obligatoria para cerrar la orden.</p>
-              )}
-              {!isClosed && (
-                <div>
-                  <input
-                    ref={fileRef}
-                    id="wo-evidence-file"
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    capture="environment"
-                    className="sr-only"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      e.target.value = '';
-                      if (!file) return;
-                      void run('evidence', async () => {
-                        const dataUrl = await prepareEvidence(file);
-                        await onUploadEvidence(selectedOrder.id, file.name, dataUrl);
-                      });
-                    }}
-                  />
-                  <button
-                    type="button"
-                    disabled={busy !== null}
-                    onClick={() => fileRef.current?.click()}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold bg-[#0F2736] hover:bg-[#143349] text-cyan-300 border border-[#234C66] rounded-lg cursor-pointer whitespace-nowrap disabled:opacity-40"
-                  >
-                    <Camera className="w-3.5 h-3.5" />
-                    {busy === 'evidence'
-                      ? 'Subiendo y sellando…'
-                      : selectedOrder.closureEvidence
-                        ? 'Reemplazar foto'
-                        : 'Adjuntar foto de cierre'}
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Workflow */}
-            {!isClosed ? (
-              <div className="p-4 rounded-lg bg-[#071B28] border border-cyan-500/30 space-y-3">
-                <h4 className="text-xs font-semibold text-white">Seguimiento y Cierre</h4>
-                <label htmlFor="wo-closure-notes" className="sr-only">Notas de cierre</label>
-                <input
-                  id="wo-closure-notes"
-                  type="text"
-                  placeholder="Notas de cierre (ej. Brida reemplazada, presión 4.4 bar)"
-                  value={closureNotes}
-                  onChange={(e) => setClosureNotes(e.target.value)}
-                  className="w-full px-3 py-2 text-xs bg-[#06131C] text-white border border-[#18364A] rounded-lg focus:outline-none focus:border-cyan-400"
-                />
-                {blockers.length > 0 && (
-                  <ul className="text-xs text-amber-300 space-y-1 list-disc pl-4" aria-label="Requisitos pendientes para cerrar">
-                    {blockers.map((b) => (
-                      <li key={b}>{b}</li>
-                    ))}
-                  </ul>
-                )}
-                <div className="flex flex-wrap items-center gap-3">
-                  {selectedOrder.status === 'Abierta' && (
-                    <button
-                      type="button"
-                      disabled={busy !== null}
-                      onClick={() =>
-                        void run('progress', () => onUpdateOrder(selectedOrder.id, { status: 'En Progreso' }))
-                      }
-                      className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-[#06131C] rounded-lg cursor-pointer whitespace-nowrap disabled:opacity-40"
-                    >
-                      <PlayCircle className="w-3.5 h-3.5" />
-                      Iniciar Intervención
+                      <span className="text-sm text-quiet">
+                        {o.id} · {STATUS_LABEL[o.status]} · {o.assignee}
+                      </span>
+                      {o.status !== 'Cerrada' && (
+                        <span className="text-sm text-soft">
+                          Tareas {done} de {o.checklist!.length}
+                          {o.closureEvidence ? ' · foto lista' : ' · falta la foto'}
+                        </span>
+                      )}
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    disabled={busy !== null || blockers.length > 0}
-                    onClick={() =>
-                      void run('close', async () => {
-                        await onUpdateOrder(selectedOrder.id, {
-                          status: 'Cerrada',
-                          closureNotes:
-                            closureNotes || 'Intervención completada y verificada en campo. Parámetros en rango nominal.',
-                          closureEvidenceLabel: selectedOrder.closureEvidenceLabel,
-                        });
-                        setClosureNotes('');
-                      })
-                    }
-                    className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-[#04140E] rounded-lg cursor-pointer whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    Cerrar Orden y Restaurar Nodo
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="p-4 rounded-lg bg-[#06131C] border border-emerald-500/30 flex flex-wrap items-center justify-between gap-4">
-                <div className="space-y-1 text-xs">
-                  <div className="font-semibold text-emerald-400">✓ Orden cerrada con checklist completo y foto sellada</div>
-                  <p className="text-slate-300">{selectedOrder.closureNotes}</p>
-                  <p className="text-slate-400 font-mono break-all">Evidencia: {selectedOrder.closureEvidenceLabel}</p>
-                  {selectedOrder.seal && (
-                    <p className="text-slate-400 font-mono break-all">
-                      Sello del expediente completo: sha256:{selectedOrder.seal.dossierDigest.slice(0, 24)}… · bloque #{selectedOrder.seal.closedLedgerIndex} · {selectedOrder.seal.receipt ? `recibo firmado Ed25519 (clave ${selectedOrder.seal.receipt.payload.keyId.slice(0, 16)}…)` : 'sin firma'}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+
+        <section aria-label="Detalle de la orden" className={order ? '' : 'hidden lg:block'}>
+          {!order ? (
+            <EmptyState icon={<ClipboardList className="h-8 w-8" />} title="Elige una orden">
+              Verás qué hay que hacer, quién es responsable y qué falta para cerrarla.
+            </EmptyState>
+          ) : (
+            (() => {
+              const o = order;
+              const checklist = o.checklist ?? [];
+              const done = checklist.filter((c) => c.done).length;
+              const closed = o.status === 'Cerrada';
+              const blockers = closureBlockers(o);
+              const node = p.nodes.find((n) => n.id === o.nodeId);
+              const v = orderVerification(o, p.seriesByNode[o.nodeId]);
+              const u = urgency(o.priority);
+              return (
+                <article className="space-y-8" aria-labelledby="ord-title">
+                  <div className="space-y-3">
+                    <button type="button" onClick={() => p.onSelect(null)} className="-ml-2 inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-2 text-sm text-soft hover:text-ink lg:hidden">
+                      <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Volver a la lista
+                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {closed ? v.state === 'pending' ? <StatusPill tone="verifying" label={HEALTH_META.verifying.label} title={HEALTH_META.verifying.help} /> : <StatusPill tone="ok" label="Cerrada, con mediciones posteriores" /> : <StatusPill tone={u.tone} label={`${u.label} · ${STATUS_LABEL[o.status].toLowerCase()}`} />}
+                    </div>
+                    <h2 id="ord-title" className="font-display text-2xl font-semibold leading-tight text-ink">
+                      {o.location.split(' · ')[0]}
+                    </h2>
+                    <p className="text-sm text-quiet">
+                      {o.id} · {o.assetName} · actualizada {timeAgo(o.updatedAt)}
                     </p>
+                    <button type="button" onClick={() => p.onOpenIncident(o.anomalyId)} className="cursor-pointer text-sm text-accent underline">
+                      Ver el incidente que originó esta orden
+                    </button>
+                  </div>
+
+                  {error && <Notice tone="critical" live="assertive">{error}</Notice>}
+                  {!mayWrite && !closed && <Notice tone="neutral">Tu rol ({ROLE_LABEL[p.role]}) permite consultar la orden, no modificarla.</Notice>}
+
+                  <Question q="Qué hay que hacer" id="q-ord-todo">
+                    <p className="text-base leading-relaxed text-ink">{o.probableCause}</p>
+                    <p className="text-sm text-quiet">Causa probable: es una hipótesis del diagnóstico, no un hecho confirmado.</p>
+                    {o.requiredResources.length > 0 && (
+                      <p className="text-sm text-soft">
+                        <span className="font-semibold">Llevar:</span> {o.requiredResources.join(' · ')}
+                      </p>
+                    )}
+                  </Question>
+
+                  <Question q={`Lista de tareas (${done} de ${checklist.length})`} id="q-ord-checks">
+                    <div className="h-2 overflow-hidden rounded-full bg-raised" role="progressbar" aria-valuemin={0} aria-valuemax={checklist.length} aria-valuenow={done} aria-label="Avance de las tareas">
+                      <div className="h-full bg-ok transition-all" style={{ width: `${checklist.length ? (done / checklist.length) * 100 : 0}%` }} />
+                    </div>
+                    <ul className="space-y-2">
+                      {checklist.map((item) => (
+                        <li key={item.id}>
+                          <label className={`flex min-h-12 items-start gap-3 rounded-lg border px-3 py-3 ${item.done ? 'border-ok/30 bg-ok/5' : 'border-line bg-surface'} ${closed || !mayWrite ? '' : 'cursor-pointer hover:border-line-strong'}`}>
+                            <input
+                              type="checkbox"
+                              checked={optimistic[item.id] ?? item.done}
+                              disabled={closed || !mayWrite || item.id in optimistic}
+                              onChange={(e) => {
+                                const next = e.target.checked;
+                                setOptimistic((m) => ({ ...m, [item.id]: next }));
+                                void run(`ck-${item.id}`, () => p.onToggleChecklist(o.id, item.id, next)).finally(() =>
+                                  setOptimistic((m) => {
+                                    const { [item.id]: _gone, ...rest } = m;
+                                    return rest;
+                                  })
+                                );
+                              }}
+                              className="mt-0.5 h-5 w-5 shrink-0 accent-emerald-500"
+                            />
+                            <span className="min-w-0 flex-1 text-base text-ink">
+                              {item.label}
+                              {item.done && item.doneAt && (
+                                <span className="mt-0.5 block text-xs text-quiet">
+                                  Hecho {timeAgo(item.doneAt)} · {item.doneBy}
+                                </span>
+                              )}
+                            </span>
+                          </label>
+                        </li>
+                      ))}
+                    </ul>
+                  </Question>
+
+                  <Question q="Responsable" id="q-ord-who">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <p className="text-base text-ink">{o.assignee}</p>
+                      {!closed && mayWrite && !changingAssignee && (
+                        <Button variant="ghost" onClick={() => setChangingAssignee(true)} icon={<UserCog className="h-4 w-4" />}>
+                          Cambiar
+                        </Button>
+                      )}
+                    </div>
+                    {changingAssignee && (
+                      <form
+                        className="flex flex-wrap items-end gap-3"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          const value = assignee.trim();
+                          if (value.length < 2) return;
+                          void run('assign', async () => {
+                            await p.onAssignOrder(o.id, value);
+                            setAssignee('');
+                            setChangingAssignee(false);
+                          });
+                        }}
+                      >
+                        <div className="min-w-[14rem] flex-1">
+                          <label htmlFor="wo-assignee" className="mb-1 block text-sm font-semibold text-ink">
+                            Nuevo responsable (persona o cuadrilla)
+                          </label>
+                          <input id="wo-assignee" value={assignee} maxLength={80} onChange={(e) => setAssignee(e.target.value)} placeholder={o.assignee} className="min-h-11 w-full rounded-lg border border-line-strong bg-canvas px-3 text-base text-ink placeholder:text-quiet" />
+                        </div>
+                        <Button type="submit" variant="primary" busy={busy === 'assign'} disabled={assignee.trim().length < 2}>
+                          Asignar
+                        </Button>
+                        <Button variant="ghost" onClick={() => setChangingAssignee(false)}>
+                          Cancelar
+                        </Button>
+                      </form>
+                    )}
+                    <p className="text-xs text-quiet">El responsable es una etiqueta de la orden. Quién hace cada cambio queda registrado con su usuario.</p>
+                  </Question>
+
+                  <Question q="Foto de cierre" id="q-ord-photo">
+                    {o.closureEvidence ? (
+                      <div className="flex flex-wrap items-start gap-4">
+                        <img src={`/api/evidence/${o.closureEvidence.sha256}`} alt={`Foto de cierre de ${o.id}: ${o.closureEvidence.fileName}`} className="h-28 w-40 rounded-lg border border-line-strong bg-surface object-cover" />
+                        <p className="text-sm text-soft">
+                          Adjuntada {timeAgo(o.closureEvidence.attachedAt)} por {o.closureEvidence.attachedBy}.<br />
+                          <span className="text-quiet">Queda guardada y sellada, pero el sistema no analiza su contenido.</span>
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-base text-soft">Todavía no hay foto. Es obligatoria para cerrar la orden.</p>
+                    )}
+                    {!closed && mayPhoto && (
+                      <div>
+                        <input
+                          ref={fileRef}
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          capture="environment"
+                          className="sr-only"
+                          aria-label="Tomar o elegir la foto de cierre"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            e.target.value = '';
+                            if (!f) return;
+                            void run('photo', async () => p.onUploadEvidence(o.id, f.name, await prepareImage(f)));
+                          }}
+                        />
+                        <Button variant="secondary" busy={busy === 'photo'} onClick={() => fileRef.current?.click()} icon={<Camera className="h-4 w-4" />}>
+                          {o.closureEvidence ? 'Cambiar la foto' : 'Tomar o añadir la foto'}
+                        </Button>
+                      </div>
+                    )}
+                  </Question>
+
+                  {!closed ? (
+                    <Question q={mayWrite ? 'Cerrar la orden' : 'Qué falta para cerrar'} id="q-ord-close">
+                      {blockers.length > 0 && (
+                        <ul className="space-y-1 text-sm text-attention" aria-label="Qué falta para cerrar">
+                          {blockers.map((b) => (
+                            <li key={b} className="flex gap-2">
+                              <span aria-hidden="true">•</span> {b}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {mayWrite && (
+                        <>
+                          <div>
+                            <label htmlFor="wo-notes" className="mb-1 block text-sm font-semibold text-ink">
+                              Qué se hizo (opcional)
+                            </label>
+                            <input id="wo-notes" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={300} placeholder="Ej.: se cambió la brida del tramo norte" className="min-h-11 w-full rounded-lg border border-line-strong bg-canvas px-3 text-base text-ink placeholder:text-quiet" />
+                          </div>
+                          <div className="flex flex-col gap-2 sm:flex-row">
+                            {o.status === 'Abierta' && (
+                              <Button variant="secondary" busy={busy === 'start'} onClick={() => void run('start', () => p.onUpdateOrder(o.id, { status: 'En Progreso' }))} icon={<PlayCircle className="h-4 w-4" />}>
+                                Empezar la intervención
+                              </Button>
+                            )}
+                            <Button variant="primary" disabled={blockers.length > 0} onClick={() => setConfirmClose(true)} icon={<CheckCircle2 className="h-4 w-4" />}>
+                              Cerrar la orden
+                            </Button>
+                          </div>
+                        </>
+                      )}
+                      <ConfirmDialog
+                        open={confirmClose}
+                        title="¿Cerrar esta orden?"
+                        confirmLabel="Sí, cerrar la orden"
+                        busy={busy === 'close'}
+                        onCancel={() => setConfirmClose(false)}
+                        onConfirm={() =>
+                          void run('close', async () => {
+                            await p.onUpdateOrder(o.id, { status: 'Cerrada', closureNotes: notes.trim() || 'Cierre registrado desde la interfaz, sin verificación con mediciones posteriores.', closureEvidenceLabel: o.closureEvidenceLabel });
+                            setNotes('');
+                            setConfirmClose(false);
+                          })
+                        }
+                      >
+                        La orden queda sellada en el registro y ya no se puede reabrir. El sistema marcará el punto como estable, <strong>aunque todavía no haya mediciones reales que lo confirmen</strong>: después tendrás que comprobar que se recuperó.
+                      </ConfirmDialog>
+                    </Question>
+                  ) : (
+                    <Question q="¿Se recuperó la infraestructura?" id="q-ord-verify">
+                      {v.state === 'pending' ? (
+                        <Notice tone="verifying" title="Aún no se puede confirmar">
+                          La orden se cerró {timeAgo(v.closedAt)}, pero todavía no hay mediciones reales posteriores. Los valores «normales» que se ven en el punto los escribió el sistema al cerrar la orden: no son una medición. Cuando lleguen lecturas nuevas aparecerán aquí para que las compares.
+                        </Notice>
+                      ) : v.state === 'measured' ? (
+                        <div className="space-y-2 rounded-xl border border-line bg-surface p-4">
+                          <p className="text-base text-ink">
+                            Hay {v.measuredAfter} {v.measuredAfter === 1 ? 'medición posterior' : 'mediciones posteriores'} al cierre. La última:
+                          </p>
+                          <p className="text-sm text-soft">
+                            Presión {v.last.pressureBar.toFixed(2)} bar{node ? ` (lo normal: ${node.baseline.pressureBar.toFixed(2)} bar)` : ''} · caudal {v.last.flowLs.toFixed(1)} L/s{node ? ` (lo normal: ${node.baseline.flowLs.toFixed(1)} L/s)` : ''}
+                            {v.last.synthetic ? ' · dato simulado' : ''}.
+                          </p>
+                          <p className="text-sm text-quiet">Compáralas con lo normal. El sistema todavía no emite un veredicto de recuperación por sí mismo.</p>
+                        </div>
+                      ) : null}
+                      <div className="rounded-xl border border-ok/30 bg-ok/5 p-4 text-sm text-soft">
+                        <p className="flex items-center gap-2 font-semibold text-ok">
+                          <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> Orden cerrada con tareas completas y foto sellada
+                        </p>
+                        {o.closureNotes && <p className="mt-1">{o.closureNotes}</p>}
+                      </div>
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        {mayExport && (
+                          <Button variant="secondary" busy={busy === 'dossier'} onClick={() => void run('dossier', () => p.onDownloadDossier(o.id))} icon={<Download className="h-4 w-4" />}>
+                            Descargar el expediente verificable
+                          </Button>
+                        )}
+                        <Button variant="ghost" onClick={p.onOpenLedger} icon={<ShieldCheck className="h-4 w-4" />}>
+                          Ver el registro (Trust Ledger)
+                        </Button>
+                      </div>
+                      {o.seal && (
+                        <Disclosure summary="Sello del expediente">
+                          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+                            <dt className="text-quiet">Huella</dt>
+                            <dd className="break-all font-mono text-soft">sha256:{o.seal.dossierDigest}</dd>
+                            <dt className="text-quiet">Bloque</dt>
+                            <dd className="text-soft">#{o.seal.closedLedgerIndex}</dd>
+                            <dt className="text-quiet">Firma</dt>
+                            <dd className="text-soft">{o.seal.receipt ? `Recibo firmado Ed25519 (clave ${o.seal.receipt.payload.keyId.slice(0, 16)}…)` : 'Sin firma'}</dd>
+                            {o.closureEvidence && (
+                              <>
+                                <dt className="text-quiet">Foto (SHA-256)</dt>
+                                <dd className="break-all font-mono text-soft">{o.closureEvidence.sha256}</dd>
+                              </>
+                            )}
+                          </dl>
+                          <p className="flex items-center gap-2 text-xs text-quiet">
+                            <Hourglass className="h-3.5 w-3.5" aria-hidden="true" /> Verifica el archivo descargado sin conexión con: npm run verify:dossier
+                          </p>
+                        </Disclosure>
+                      )}
+                    </Question>
                   )}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={busy !== null}
-                    onClick={() => void run('dossier', () => onDownloadDossier(selectedOrder.id))}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold bg-[#0F2736] hover:bg-[#143349] text-cyan-300 border border-[#234C66] rounded-lg cursor-pointer whitespace-nowrap disabled:opacity-40"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    Descargar expediente verificable
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onNavigateToLedger}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold bg-cyan-500 hover:bg-cyan-400 text-[#041018] rounded-lg cursor-pointer whitespace-nowrap"
-                  >
-                    <ShieldCheck className="w-3.5 h-3.5" />
-                    Verificar en Trust Ledger
-                  </button>
-                </div>
-              </div>
-            )}
-          </section>
-        </div>
-      )}
+                </article>
+              );
+            })()
+          )}
+        </section>
+      </div>
     </div>
   );
 };

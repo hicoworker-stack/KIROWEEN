@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Database, Download, KeyRound, ShieldAlert, Upload, Zap } from 'lucide-react';
 import { destructiveFetch, readServerMessage } from '../client/adminFetch';
+import { apiFetch } from '../client/api';
 
 interface Health {
   aiProvider: string;
@@ -20,7 +21,7 @@ interface Health {
   };
   integrity?: { status: 'ok' | 'degraded' | 'compromised'; issues: string[] };
   seal?: { keyId: string; keyPersistence: 'file' | 'env' | 'ephemeral' };
-  destructiveOps?: { requiresToken: boolean; enabledByEnv: boolean; production: boolean };
+  security?: { production: boolean; destructiveOps: string; audit: { status: 'ok' | 'degraded' | 'compromised'; failedWrites: number; count: number }; activeSessions: number; rateLimiter: string };
   ledgerCount: number;
   ledgerHeadHash: string | null;
 }
@@ -33,7 +34,7 @@ interface ProbeResult {
   error?: string;
 }
 
-export const OperationsHealthPanel: React.FC<{ onStateChanged: () => void }> = ({ onStateChanged }) => {
+export const OperationsHealthPanel: React.FC<{ onStateChanged: () => void; isAdmin?: boolean }> = ({ onStateChanged, isAdmin = false }) => {
   const [health, setHealth] = useState<Health | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [probe, setProbe] = useState<ProbeResult | null>(null);
@@ -42,7 +43,7 @@ export const OperationsHealthPanel: React.FC<{ onStateChanged: () => void }> = (
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch('/api/health');
+      const res = await apiFetch('/api/health');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setHealth(await res.json());
       setLoadError(null);
@@ -59,7 +60,7 @@ export const OperationsHealthPanel: React.FC<{ onStateChanged: () => void }> = (
     setProbing(true);
     setProbe(null);
     try {
-      const res = await fetch('/api/ai/probe', { method: 'POST' });
+      const res = await apiFetch('/api/ai/probe', { method: 'POST' });
       setProbe(await res.json());
       await load();
     } catch {
@@ -72,7 +73,7 @@ export const OperationsHealthPanel: React.FC<{ onStateChanged: () => void }> = (
   const exportSnapshot = async () => {
     setMessage(null);
     try {
-      const res = await fetch('/api/state/export');
+      const res = await apiFetch('/api/state/export');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -133,7 +134,8 @@ export const OperationsHealthPanel: React.FC<{ onStateChanged: () => void }> = (
             <button
               type="button"
               onClick={runProbe}
-              disabled={probing}
+              hidden={!isAdmin}
+              disabled={probing || !isAdmin}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-[#0F2736] hover:bg-[#143349] text-cyan-300 border border-[#234C66] rounded-lg cursor-pointer disabled:opacity-50"
             >
               <Zap className="w-3.5 h-3.5" />
@@ -158,7 +160,7 @@ export const OperationsHealthPanel: React.FC<{ onStateChanged: () => void }> = (
             {memoryOnly && health.persistence.lastError && <div className="text-rose-300 break-words">{health.persistence.lastError}</div>}
             <div className="text-slate-400 font-mono break-all">{health.persistence.statePath}</div>
             <div className={riskClass}>Riesgo de pérdida por entorno efímero: {health.persistence.ephemeralRisk}. {health.persistence.note}</div>
-            <div className="flex flex-wrap gap-2 pt-1">
+            <div className="flex flex-wrap gap-2 pt-1" hidden={!isAdmin}>
               <button
                 type="button"
                 onClick={exportSnapshot}
@@ -218,16 +220,14 @@ export const OperationsHealthPanel: React.FC<{ onStateChanged: () => void }> = (
                 </span>
               </div>
             )}
-            {health.destructiveOps && (
+            {health.security && (
               <div className="text-slate-400">
-                Operaciones destructivas (reset, demo, import):{' '}
-                {health.destructiveOps.requiresToken
-                  ? 'exigen token de administración.'
-                  : health.destructiveOps.enabledByEnv
-                    ? 'habilitadas por AQUA_ALLOW_DESTRUCTIVE.'
-                    : health.destructiveOps.production
-                      ? 'DESHABILITADAS en producción (define AQUA_ADMIN_TOKEN).'
-                      : 'permitidas solo desde la propia máquina.'}
+                Operaciones destructivas (reset, demo, import): {health.security.destructiveOps}.
+                <div className={health.security.audit.status === 'ok' ? 'text-emerald-300' : health.security.audit.status === 'compromised' ? 'text-rose-300' : 'text-amber-300'}>
+                  Auditoría: {health.security.audit.status === 'ok' ? 'cadena verificada' : health.security.audit.status === 'compromised' ? 'COMPROMETIDA' : 'con avisos'} ({health.security.audit.count} eventos
+                  {health.security.audit.failedWrites > 0 ? `, ${health.security.audit.failedWrites} fallos de escritura` : ''}). Detecta alteraciones de terceros; no es inmutable frente a quien controla el servidor.
+                </div>
+                <div>Sesiones activas: {health.security.activeSessions}. Límite de tasa: {health.security.rateLimiter}.</div>
               </div>
             )}
           </div>

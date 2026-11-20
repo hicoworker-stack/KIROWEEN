@@ -14,11 +14,11 @@
 ## 3. Requisitos Formales y Trazabilidad
 - **REQ-AI-01**: Clasificar honestamente el estado de enriquecimiento (`pending | live | fallback`) y el motivo real de respaldo (`missing_key | timeout | api_error | no_image`).
 - **REQ-AI-02**: Sincronizar el panel de Visión Multimodal con la evidencia fotográfica del nodo activo y mantener separación epistémica estricta.
-- **REQ-AI-03**: Permitir navegar todo el historial de `Diagnósticos Recientes` en `AquaBrainView` conservando la autoridad final del operador humano.
+- **REQ-AI-03**: Permitir navegar todo el historial de `Diagnósticos Recientes` en `IncidentsView` conservando la autoridad final del operador humano.
 
 | Requisito | Implementación | Prueba / Verificación |
 | --- | --- | --- |
 | `REQ-AI-01` | `src/server/aiProvider.ts`, `server.ts`, `src/core/types.ts` | `src/server/aiProvider.test.ts` |
 | `REQ-AI-02` | `src/server/aiProvider.ts`, `src/components/VisionIntelligenceView.tsx` | `src/server/aiProvider.test.ts` |
-| `REQ-AI-03` | `src/components/AquaBrainView.tsx`, `server.ts` | `npm run lint` |
+| `REQ-AI-03` | `src/components/IncidentsView.tsx`, `server.ts` | `npm run lint` |
 

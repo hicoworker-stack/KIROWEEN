@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import express from 'express';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { errorMiddleware, evaluateDestructivePolicy, HttpError, installAsyncSafety } from './http';
+import { errorMiddleware, HttpError, installAsyncSafety, safeEqual } from './http';
 
 let server: Server;
 let base = '';
@@ -72,47 +72,13 @@ test('JSON inválido y cuerpo excesivo devuelven 400 y 413, no 500 (REQ-RES-06)'
   assert.equal(big.status, 413);
 });
 
-type Req = { header(name: string): string | undefined; loopback: boolean };
-const mkReq = (headers: Record<string, string>, loopback = true): Req => ({
-  header: (n) => headers[n.toLowerCase()],
-  loopback,
-});
+// REQ-SEC-01 (v1): las 5 pruebas de la política por entorno (AQUA_ADMIN_TOKEN / AQUA_ALLOW_DESTRUCTIVE) se retiraron al eliminar esas variables en la Fase 2.
+// Su intención (sin confirmación se rechaza; producción sin autorización es denegada; el token incorrecto se rechaza; nada se ejecuta sin autorización explícita)
+// está cubierta con peticiones HTTP reales en src/server/security.e2e.test.ts (REQ-SEC-01, REQ-SEC-05).
 
-test('operación destructiva sin cabecera de confirmación se rechaza siempre (REQ-SEC-01, anti-CSRF)', () => {
-  const d = evaluateDestructivePolicy('reset', mkReq({}), { NODE_ENV: 'development' });
-  assert.equal(d.allow, false);
-  if (!d.allow) assert.equal(d.status, 400);
-  const wrongOp = evaluateDestructivePolicy('reset', mkReq({ 'x-aqua-confirm': 'import' }), { NODE_ENV: 'development' });
-  assert.equal(wrongOp.allow, false);
-});
-
-test('en producción sin token ni habilitación explícita todo es 403, incluso desde loopback (REQ-SEC-01)', () => {
-  const d = evaluateDestructivePolicy('reset', mkReq({ 'x-aqua-confirm': 'reset' }), { NODE_ENV: 'production' });
-  assert.deepEqual(d.allow ? null : d.status, 403);
-});
-
-test('en desarrollo se permite solo desde loopback (REQ-SEC-01)', () => {
-  const ok = evaluateDestructivePolicy('demo', mkReq({ 'x-aqua-confirm': 'demo' }), { NODE_ENV: 'development' });
-  assert.equal(ok.allow, true);
-  const remote = evaluateDestructivePolicy('demo', mkReq({ 'x-aqua-confirm': 'demo' }, false), { NODE_ENV: 'development' });
-  assert.equal(remote.allow, false);
-});
-
-test('con AQUA_ADMIN_TOKEN se exige el token, y el loopback no basta (REQ-SEC-01)', () => {
-  const env = { AQUA_ADMIN_TOKEN: 'secreto-largo', NODE_ENV: 'development' };
-  assert.equal(evaluateDestructivePolicy('import', mkReq({ 'x-aqua-confirm': 'import' }), env).allow, false);
-  const wrong = evaluateDestructivePolicy('import', mkReq({ 'x-aqua-confirm': 'import', 'x-admin-token': 'otro' }), env);
-  assert.deepEqual(wrong.allow ? null : wrong.status, 401);
-  assert.equal(
-    evaluateDestructivePolicy('import', mkReq({ 'x-aqua-confirm': 'import', 'x-admin-token': 'secreto-largo' }, false), env).allow,
-    true
-  );
-});
-
-test('AQUA_ALLOW_DESTRUCTIVE=1 habilita explícitamente una demo desplegada (REQ-SEC-01)', () => {
-  const d = evaluateDestructivePolicy('reset', mkReq({ 'x-aqua-confirm': 'reset' }, false), {
-    NODE_ENV: 'production',
-    AQUA_ALLOW_DESTRUCTIVE: '1',
-  });
-  assert.equal(d.allow, true);
+test('safeEqual compara en tiempo constante y distingue cadenas distintas o de distinta longitud', () => {
+  assert.equal(safeEqual('abc', 'abc'), true);
+  assert.equal(safeEqual('abc', 'abd'), false);
+  assert.equal(safeEqual('abc', 'abcd'), false);
+  assert.equal(safeEqual('', ''), true);
 });

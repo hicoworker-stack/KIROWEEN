@@ -13,6 +13,8 @@ interface SensorIntelligenceViewProps {
   onIngestCsv: (csvText: string) => Promise<{ ingestedCount: number; errors: string[] }>;
   isSimulatorRunning: boolean;
   onToggleSimulator: () => void;
+  /** Solo OPERATOR y ADMIN pueden enviar lecturas; el servidor lo exige igualmente. */
+  canIngest?: boolean;
 }
 
 const METRIC_OPTIONS: Array<{
@@ -39,6 +41,7 @@ export const SensorIntelligenceView: React.FC<SensorIntelligenceViewProps> = ({
   onIngestCsv,
   isSimulatorRunning,
   onToggleSimulator,
+  canIngest = true,
 }) => {
   const [selectedMetric, setSelectedMetric] = useState<MetricKey>('pressureBar');
   const [csvInput, setCsvInput] = useState<string>(SAMPLE_CSV_PAYLOAD);
@@ -112,7 +115,9 @@ export const SensorIntelligenceView: React.FC<SensorIntelligenceViewProps> = ({
           <button
             type="button"
             onClick={onToggleSimulator}
-            className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+            disabled={!canIngest}
+            title={canIngest ? undefined : 'Tu rol solo permite consultar'}
+            className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
               isSimulatorRunning
                 ? 'bg-amber-500 hover:bg-amber-400 text-[#06131C]'
                 : 'bg-cyan-500 hover:bg-cyan-400 text-[#041018]'
@@ -257,7 +262,8 @@ export const SensorIntelligenceView: React.FC<SensorIntelligenceViewProps> = ({
 
             <button
               type="button"
-              disabled={submitting}
+              disabled={submitting || !canIngest}
+              title={canIngest ? undefined : 'Tu rol solo permite consultar'}
               onClick={handleIngestSubmit}
               className="px-4 py-2 text-xs font-semibold bg-cyan-500 hover:bg-cyan-400 text-[#041018] rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50"
             >
