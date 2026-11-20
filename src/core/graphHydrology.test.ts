@@ -5,74 +5,52 @@ import {
   enrichAnomalyWithNetworkContext,
   evaluatePipeMassBalances,
   getDownstreamNodeIds,
+  getUpstreamNodeIds,
 } from './graphHydrology';
-import { createBaselineNodes, DIFFERENTIAL_SCENARIOS, NETWORK_PIPES } from './networkData';
+import { createBaselineNodes, NETWORK_PIPES } from './networkData';
 import { evaluateTelemetryReading } from './deterministicEngine';
+import { applyFrameToNodes, buildScenarioFrames } from '../sim/scenarioGenerator';
+
+const ts = '2026-11-19T12:00:00.000Z';
 
 test('getDownstreamNodeIds traverses directed hydraulic graph cleanly', () => {
-  const fromIntake = getDownstreamNodeIds('N-TOMA-01', NETWORK_PIPES);
-  assert.deepEqual(fromIntake, [
-    'N-PLANTA-02',
-    'N-TANQ-03',
-    'N-TRON-04',
-    'N-VALV-05',
-    'N-DIST-06',
-    'N-DIST-07',
-  ]);
-
-  const fromValve = getDownstreamNodeIds('N-VALV-05', NETWORK_PIPES);
-  assert.deepEqual(fromValve, ['N-DIST-07']);
+  assert.deepEqual(getDownstreamNodeIds('N-TOMA-01', NETWORK_PIPES), ['N-PLANTA-02', 'N-TANQ-03', 'N-TRON-04', 'N-VALV-05', 'N-DIST-06', 'N-DIST-07']);
+  assert.deepEqual(getDownstreamNodeIds('N-VALV-05', NETWORK_PIPES), ['N-DIST-07']);
+  assert.deepEqual(getUpstreamNodeIds('N-DIST-06', NETWORK_PIPES), ['N-TRON-04']);
 });
 
-test('evaluatePipeMassBalances flags nodal divergence on leak scenario', () => {
-  const nodes = createBaselineNodes();
-  const leakScenario = DIFFERENTIAL_SCENARIOS.find((s) => s.id === 'leak')!;
-  const updatedNodes = nodes.map((n) =>
-    n.id === leakScenario.nodeId
-      ? {
-          ...n,
-          status: 'critical' as const,
-          current: {
-            ...leakScenario.injectedReading,
-            id: 'READ-LEAK',
-            timestamp: new Date().toISOString(),
-          },
-        }
-      : n
-  );
-
-  const balances = evaluatePipeMassBalances(updatedNodes, NETWORK_PIPES);
-  const northTrunk = balances.find((b) => b.nodeId === 'N-TRON-04')!;
-  assert.ok(northTrunk);
-  assert.equal(northTrunk.flagged, true);
-  assert.ok(northTrunk.deviationLs > 5);
+test('evaluatePipeMassBalances: la línea base es coherente y los tanques no se evalúan (REQ-HYD-03)', () => {
+  const balances = evaluatePipeMassBalances(createBaselineNodes(), NETWORK_PIPES);
+  assert.ok(balances.every((b) => !b.flagged));
+  assert.ok(!balances.some((b) => b.nodeId === 'N-TANQ-03'), 'el tanque no es evaluable');
 });
 
-test('analyzeNetworkHydraulics propagates downstream risk and skips sensor_fault', () => {
-  const nodes = createBaselineNodes();
-  const contamScenario = DIFFERENTIAL_SCENARIOS.find((s) => s.id === 'contamination')!;
-  const intakeNode = nodes.find((n) => n.id === contamScenario.nodeId)!;
-  const contamAnom = evaluateTelemetryReading(
-    { ...contamScenario.injectedReading, id: 'READ-CONTAM', timestamp: new Date().toISOString() },
-    intakeNode
-  )!;
-  const enriched = enrichAnomalyWithNetworkContext(contamAnom, nodes, NETWORK_PIPES);
+test('evaluatePipeMassBalances marca el desbalance de una rotura generada por el solver (REQ-HYD-03)', () => {
+  const frames = buildScenarioFrames('leak', Date.parse(ts));
+  const nodes = applyFrameToNodes(createBaselineNodes(), frames[frames.length - 1]);
+  const trunk = evaluatePipeMassBalances(nodes, NETWORK_PIPES).find((b) => b.nodeId === 'N-TRON-04')!;
+  assert.equal(trunk.flagged, true);
+  assert.ok(trunk.deviationLs > 8, `exceso ${trunk.deviationLs}`);
+});
 
+test('REGRESIÓN DE AUDITORÍA: la demanda ×1.5 no marca ningún nodo como desbalanceado (REQ-HYD-03)', () => {
+  const nodes = createBaselineNodes().map((n) => ({ ...n, current: { ...n.current, flowLs: Number((n.baseline.flowLs * 1.5).toFixed(2)) } }));
+  assert.ok(evaluatePipeMassBalances(nodes, NETWORK_PIPES).every((b) => !b.flagged));
+});
+
+test('analyzeNetworkHydraulics propaga el riesgo aguas abajo y omite sensor_fault', () => {
+  const nodes = createBaselineNodes();
+  const intake = nodes.find((n) => n.id === 'N-TOMA-01')!;
+  const contam = evaluateTelemetryReading({ ...intake.current, id: 'R', timestamp: ts, turbidityNtu: 14.8, chlorineMgL: 0.16, ph: 6.2 }, intake)!;
+  const enriched = enrichAnomalyWithNetworkContext(contam, nodes, NETWORK_PIPES);
   assert.equal(enriched.downstreamAffectedNodeIds?.length, 6);
   assert.equal(enriched.downstreamPopulationAffected, 4800);
-
   const summary = analyzeNetworkHydraulics(nodes, NETWORK_PIPES, [enriched]);
   assert.equal(summary.propagatedByNode['N-DIST-06']?.impactLevel, 'high');
   assert.ok(summary.affectedPipeIds.includes('P-01'));
   assert.ok(summary.affectedPipeIds.includes('P-05'));
 
-  const faultScenario = DIFFERENTIAL_SCENARIOS.find((s) => s.id === 'sensor_fault')!;
-  const tankNode = nodes.find((n) => n.id === faultScenario.nodeId)!;
-  const faultAnom = evaluateTelemetryReading(
-    { ...faultScenario.injectedReading, id: 'READ-FAULT', timestamp: new Date().toISOString() },
-    tankNode
-  )!;
-  const faultSummary = analyzeNetworkHydraulics(nodes, NETWORK_PIPES, [faultAnom]);
-  assert.equal(Object.keys(faultSummary.propagatedByNode).length, 0);
+  const tank = nodes.find((n) => n.id === 'N-TANQ-03')!;
+  const fault = evaluateTelemetryReading({ ...tank.current, id: 'R', timestamp: ts, pressureBar: 4.9, flowLs: 0, turbidityNtu: -1.4 }, tank)!;
+  assert.equal(Object.keys(analyzeNetworkHydraulics(nodes, NETWORK_PIPES, [fault]).propagatedByNode).length, 0);
 });
-

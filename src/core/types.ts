@@ -16,6 +16,9 @@ export type WorkOrderStatus = 'Abierta' | 'En Progreso' | 'Cerrada';
 
 export type ScenarioId = 'leak' | 'obstruction' | 'sensor_fault' | 'contamination';
 
+/** Procedencia declarada de una lectura. Ninguna procedencia se verifica criptográficamente. */
+export type ReadingSource = 'baseline' | 'scenario-generator' | 'csv' | 'api' | 'simulator' | 'restored';
+
 export interface TelemetryReading {
   id: string;
   timestamp: string;
@@ -28,6 +31,7 @@ export interface TelemetryReading {
   ph: number;
   valveState?: 'open' | 'closed' | 'throttled';
   synthetic: boolean;
+  source?: ReadingSource;
 }
 
 export interface NodeBaseline {
@@ -64,6 +68,8 @@ export interface PipeSegment {
   lengthM: number;
   material: string;
   status: HealthStatus;
+  /** Coeficiente de Hazen-Williams (supuesto de diseño, sin calibración de campo). Por defecto 140. */
+  hazenC?: number;
 }
 
 export interface DeterministicRuleHit {
@@ -113,6 +119,10 @@ export interface AnomalyEvent {
   massBalanceDeltaLs?: number;
   scenarioId?: ScenarioId;
   synthetic: boolean;
+  /** Qué detector produjo el evento. */
+  origin?: 'node-rule' | 'network-balance' | 'offline-report';
+  /** Nivel de la conclusión hidráulica cuando el origen es el balance de red. */
+  hydraulicLevel?: 'possible_leak' | 'localized_leak';
 }
 
 export interface MassBalanceReport {
@@ -144,7 +154,13 @@ export interface HydraulicNetworkSummary {
 }
 
 export type AIEnrichmentStatus = 'pending' | 'live' | 'fallback';
-export type AIFallbackReason = 'missing_key' | 'timeout' | 'api_error' | 'no_image';
+export type AIFallbackReason = 'missing_key' | 'timeout' | 'api_error' | 'no_image' | 'invalid_response' | 'ai_disabled';
+
+/** Nivel cualitativo de respaldo de la evidencia. No es una probabilidad: no existe calibración que la sustente. */
+export type EvidenceLevel = 'baja' | 'media' | 'alta' | 'en_conflicto';
+
+export type VisionAnalysisStatus = 'analyzed' | 'not_analyzed' | 'pending';
+export type VisionEvidenceRole = 'confirmatory' | 'contradictory' | 'inconclusive' | 'not_analyzed';
 
 export interface VisionAnalysisResult {
   id: string;
@@ -161,7 +177,15 @@ export interface VisionAnalysisResult {
   cannotDetermine: string[];
   missingData: string[];
   sensorCorrelationSummary: string;
-  confidenceLabel: string;
+  /** Obsoleto: ya no se asignan etiquetas de confianza a las fotografías. */
+  confidenceLabel?: string;
+  /** 'not_analyzed' cuando ningún proveedor de visión analizó los píxeles. */
+  analysisStatus?: VisionAnalysisStatus;
+  notAnalyzedReason?: string;
+  /** Incidente (anomalía) al que pertenece la fotografía. Sin vínculo, no es evidencia de ningún incidente. */
+  anomalyId?: string;
+  /** Calculado por el servidor al comparar la categoría visual con la del incidente; nunca lo decide el LLM. */
+  evidenceRole?: VisionEvidenceRole;
   /** Categoría que la imagen respalda por sí sola; 'inconclusive' si no discrimina. */
   visualCategory?: AnomalyCategory | 'inconclusive';
 }
@@ -183,7 +207,10 @@ export interface AquaBrainDiagnosis {
   availableEvidences: string[];
   primaryHypothesis: string;
   alternativeHypotheses: AlternativeHypothesis[];
-  confidencePct: number;
+  /** Obsoleto y sin valor: no hay calibración para un porcentaje. Usar evidenceLevel. */
+  confidencePct?: number;
+  evidenceLevel?: EvidenceLevel;
+  evidenceBasis?: string[];
   uncertaintyStatement: string;
   missingData: string[];
   potentialImpact: string;
@@ -219,11 +246,54 @@ export interface SmartWorkOrder {
   status: WorkOrderStatus;
   closureNotes?: string;
   closureEvidenceLabel?: string;
+  /** Sello del expediente completo, emitido al cerrar la orden. */
+  seal?: OrderSeal;
   /** M-10: checklist interactivo derivado de interventionSteps. */
   checklist?: ChecklistItem[];
   /** M-10: evidencia fotográfica de cierre (el archivo vive en el almacén de evidencias; aquí solo metadatos + SHA-256). */
   closureEvidence?: ClosureEvidence;
   ledgerHash?: string;
+}
+
+export interface ReceiptPayload {
+  v: 1;
+  kind: 'closure-receipt';
+  orderId: string;
+  dossierDigest: string;
+  closedLedgerIndex: number;
+  closedLedgerHash: string;
+  issuedAt: string;
+  keyId: string;
+}
+
+export interface SignedReceipt {
+  payload: ReceiptPayload;
+  /** Firma Ed25519 (base64) sobre el JSON canónico de payload. */
+  signature: string;
+}
+
+export interface AnchorPayload {
+  v: 1;
+  kind: 'ledger-anchor';
+  height: number;
+  headHash: string;
+  issuedAt: string;
+  keyId: string;
+}
+
+export interface SignedAnchor {
+  payload: AnchorPayload;
+  signature: string;
+}
+
+export interface OrderSeal {
+  version: 1;
+  dossierDigest: string;
+  componentDigests: Record<string, string>;
+  sealedAt: string;
+  closedLedgerIndex: number;
+  closedLedgerHash: string;
+  receipt: SignedReceipt | null;
 }
 
 export interface ChecklistItem {
@@ -290,7 +360,6 @@ export interface ScenarioDefinition {
   summary: string;
   imageUrl?: string;
   imageTitle?: string;
-  injectedReading: Omit<TelemetryReading, 'id' | 'timestamp'>;
 }
 
 export interface CsvParseResult {

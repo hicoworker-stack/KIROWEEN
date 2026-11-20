@@ -443,6 +443,11 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
                   <div className="font-semibold text-emerald-400">✓ Orden cerrada con checklist completo y foto sellada</div>
                   <p className="text-slate-300">{selectedOrder.closureNotes}</p>
                   <p className="text-slate-400 font-mono break-all">Evidencia: {selectedOrder.closureEvidenceLabel}</p>
+                  {selectedOrder.seal && (
+                    <p className="text-slate-400 font-mono break-all">
+                      Sello del expediente completo: sha256:{selectedOrder.seal.dossierDigest.slice(0, 24)}… · bloque #{selectedOrder.seal.closedLedgerIndex} · {selectedOrder.seal.receipt ? `recibo firmado Ed25519 (clave ${selectedOrder.seal.receipt.payload.keyId.slice(0, 16)}…)` : 'sin firma'}
+                    </p>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button

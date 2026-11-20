@@ -1,15 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Check, Edit3, XCircle, Cpu, ArrowRight } from 'lucide-react';
-import { AnomalyEvent, AquaBrainDiagnosis, NetworkNode, PipeSegment, VisionAnalysisResult } from '../core/types';
-import { calibratedConfidence, evaluateConcordance } from '../core/evidenceConcordance';
-import { localizeLeak } from '../core/leakForensics';
+import { AnomalyEvent, AquaBrainDiagnosis, VisionAnalysisResult } from '../core/types';
+import { evaluateConcordance, EVIDENCE_LEVEL_LABEL } from '../core/evidenceConcordance';
+import { selectVisionForAnomaly } from '../core/evidenceLinking';
+import { HydraulicDiagnosis, toHydraulicEvidence } from '../core/hydraulicDiagnosis';
 import { ConcordancePanel } from './EvidencePanels';
 
 interface AquaBrainViewProps {
   diagnoses: AquaBrainDiagnosis[];
   anomalies: AnomalyEvent[];
-  nodes?: NetworkNode[];
-  pipes?: PipeSegment[];
+  hydraulic?: HydraulicDiagnosis | null;
   visionAnalyses?: VisionAnalysisResult[];
   selectedNodeId: string;
   onGenerateDiagnosis: (anomalyId: string) => Promise<void>;
@@ -28,8 +28,7 @@ interface AquaBrainViewProps {
 export const AquaBrainView: React.FC<AquaBrainViewProps> = ({
   diagnoses,
   anomalies,
-  nodes = [],
-  pipes = [],
+  hydraulic = null,
   visionAnalyses = [],
   selectedNodeId,
   onGenerateDiagnosis,
@@ -71,17 +70,11 @@ export const AquaBrainView: React.FC<AquaBrainViewProps> = ({
     null;
 
   const activeAnomaly = activeDiagnosis ? anomalies.find((a) => a.id === activeDiagnosis.anomalyId) ?? null : null;
-  const activeVision = activeDiagnosis
-    ? visionAnalyses.find((v) => v.id === activeDiagnosis.visionAnalysisId) ?? visionAnalyses.find((v) => v.nodeId === activeDiagnosis.nodeId) ?? null
-    : null;
+  // La fotografía solo cuenta si está vinculada a ESTE incidente (no a su nodo) y fue analizada por un proveedor de visión.
+  const activeVision = selectVisionForAnomaly(visionAnalyses, activeAnomaly);
   const concordance = activeAnomaly
-    ? evaluateConcordance({
-        anomaly: activeAnomaly,
-        vision: activeVision,
-        forensics: activeAnomaly.category === 'leak' && nodes.length > 0 ? localizeLeak(nodes, pipes, { photoNodeIds: activeVision ? [activeVision.nodeId] : [] }) : null,
-      })
+    ? evaluateConcordance({ anomaly: activeAnomaly, vision: activeVision, hydraulic: hydraulic ? toHydraulicEvidence(hydraulic, activeAnomaly.nodeId) : null })
     : null;
-  const calibratedPct = activeDiagnosis && concordance ? calibratedConfidence(activeDiagnosis.confidencePct, concordance) : activeDiagnosis?.confidencePct ?? 0;
 
   const pendingAnomaliesWithoutDiagnosis = anomalies.filter(
     (a) => a.status === 'active' && !diagnoses.some((d) => d.anomalyId === a.id)
@@ -194,7 +187,7 @@ export const AquaBrainView: React.FC<AquaBrainViewProps> = ({
                               ? '✓ Modificado'
                               : '✖ Rechazado'}
                       </span>
-                      <span className="text-slate-400">{d.confidencePct}% conf.</span>
+                      <span className="text-slate-400">Respaldo {EVIDENCE_LEVEL_LABEL[d.evidenceLevel ?? 'baja']}</span>
                     </div>
                   </button>
                 );
@@ -221,13 +214,13 @@ export const AquaBrainView: React.FC<AquaBrainViewProps> = ({
                   Prioridad {activeDiagnosis.priority} ({activeDiagnosis.priorityScore}/100)
                 </div>
                 <div className="text-xs text-cyan-300 mt-0.5">
-                  Confianza calibrada: {calibratedPct}%
+                  Respaldo de evidencia: {EVIDENCE_LEVEL_LABEL[concordance?.level ?? activeDiagnosis.evidenceLevel ?? 'baja']}
                 </div>
               </div>
             </div>
 
             {concordance && (
-              <ConcordancePanel report={concordance} rawConfidencePct={activeDiagnosis.confidencePct} calibratedPct={calibratedPct} />
+              <ConcordancePanel report={concordance} />
             )}
 
             {/* Primary Hypothesis & Impact */}

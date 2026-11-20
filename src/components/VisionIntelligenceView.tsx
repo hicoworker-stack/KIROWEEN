@@ -246,8 +246,7 @@ export const VisionIntelligenceView: React.FC<VisionIntelligenceViewProps> = ({
                 Selecciona o sube una fotografía y pulsa "Analizar Evidencia Multimodal".
               </p>
               <p className="text-xs text-slate-400 max-w-md mx-auto">
-                El sistema evaluará la imagen junto con la telemetría de {selectedNode.name} sin
-                inventar mediciones ni afirmar diagnósticos químicos únicamente visuales.
+                Un proveedor de visión (si está configurado) analiza la imagen SIN conocer las lecturas de {selectedNode.name}; luego el servidor compara su categoría con la del incidente. Sin proveedor, la imagen queda registrada como no analizada.
               </p>
             </div>
           ) : (
@@ -257,7 +256,8 @@ export const VisionIntelligenceView: React.FC<VisionIntelligenceViewProps> = ({
                   <h3 className="text-base font-semibold text-white">{latestForNode.imageTitle}</h3>
                   <p className="text-xs text-slate-400 mt-0.5">
                     Proveedor: <span className="text-cyan-300">{latestForNode.providerUsed}</span> ·{' '}
-                    {latestForNode.confidenceLabel}
+                    {latestForNode.analysisStatus === 'analyzed' ? 'Analizada por un proveedor de visión' : latestForNode.analysisStatus === 'pending' ? 'Análisis en curso' : 'NO analizada'} ·{' '}
+                    {latestForNode.anomalyId ? `Vinculada al incidente ${latestForNode.anomalyId}` : 'Sin incidente asociado (no cuenta como evidencia)'}
                   </p>
                 </div>
                 <span className="text-xs font-mono text-slate-400">
@@ -268,6 +268,9 @@ export const VisionIntelligenceView: React.FC<VisionIntelligenceViewProps> = ({
               <div className="p-3.5 rounded-lg bg-[#06131C] border border-[#234C66] text-xs text-slate-200 leading-relaxed">
                 <span className="font-semibold text-cyan-300">Correlación imagen-sensor: </span>
                 {latestForNode.sensorCorrelationSummary}
+                {latestForNode.analysisStatus === 'not_analyzed' && latestForNode.notAnalyzedReason && (
+                  <span className="block mt-1 text-amber-300">{latestForNode.notAnalyzedReason}</span>
+                )}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -277,6 +280,7 @@ export const VisionIntelligenceView: React.FC<VisionIntelligenceViewProps> = ({
                     Lo observado directamente
                   </div>
                   <ul className="space-y-1.5 text-xs text-slate-300 list-disc pl-4">
+                    {latestForNode.observed.length === 0 && <li className="list-none -ml-4 text-slate-400">Sin observaciones: la imagen no fue analizada.</li>}
                     {latestForNode.observed.map((item, idx) => (
                       <li key={idx}>{item}</li>
                     ))}
@@ -289,6 +293,7 @@ export const VisionIntelligenceView: React.FC<VisionIntelligenceViewProps> = ({
                     Inferencia al cruzar con sensores
                   </div>
                   <ul className="space-y-1.5 text-xs text-slate-300 list-disc pl-4">
+                    {latestForNode.inferred.length === 0 && <li className="list-none -ml-4 text-slate-400">Sin inferencias.</li>}
                     {latestForNode.inferred.map((item, idx) => (
                       <li key={idx}>{item}</li>
                     ))}

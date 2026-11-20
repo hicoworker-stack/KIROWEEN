@@ -310,8 +310,11 @@ export function computeRiskPriorityScore(input: {
   };
 }
 
+export const MAX_CSV_ROWS = 5000;
+
 export function parseCsvTelemetry(csvText: string): CsvParseResult {
   const lines = csvText
+    .replace(/^\uFEFF/, '')
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
@@ -345,6 +348,14 @@ export function parseCsvTelemetry(csvText: string): CsvParseResult {
     };
   }
 
+  if (lines.length - 1 > MAX_CSV_ROWS) {
+    return {
+      readings: [],
+      errors: [`El CSV tiene ${lines.length - 1} filas; el máximo es ${MAX_CSV_ROWS}.`],
+      rowCount: lines.length - 1,
+    };
+  }
+
   const indexOf = (col: string) => headers.indexOf(col);
   const readings: TelemetryReading[] = [];
   const errors: string[] = [];
@@ -365,12 +376,18 @@ export function parseCsvTelemetry(csvText: string): CsvParseResult {
     const chlorineMgL = Number(cols[indexOf('chlorineMgL')]);
     const ph = Number(cols[indexOf('ph')]);
 
+    const numericCells = [pressureBar, flowLs, levelPct, turbidityNtu, chlorineMgL, ph];
+    const emptyCell = ['pressureBar', 'flowLs', 'levelPct', 'turbidityNtu', 'chlorineMgL', 'ph'].some(
+      (col) => cols[indexOf(col)] === ''
+    );
     if (
       !timestamp ||
       !nodeId ||
-      [pressureBar, flowLs, levelPct, turbidityNtu, chlorineMgL, ph].some((n) => Number.isNaN(n))
+      emptyCell ||
+      !Number.isFinite(Date.parse(timestamp)) ||
+      numericCells.some((n) => !Number.isFinite(n))
     ) {
-      errors.push(`Fila ${i + 1}: valores numéricos inválidos o campos vacíos.`);
+      errors.push(`Fila ${i + 1}: valores numéricos no finitos, fecha inválida o campos vacíos.`);
       continue;
     }
 
@@ -393,6 +410,7 @@ export function parseCsvTelemetry(csvText: string): CsvParseResult {
       ph,
       ...(valveState ? { valveState } : {}),
       synthetic: true,
+      source: 'csv',
     });
   }
 

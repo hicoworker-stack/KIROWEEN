@@ -6,22 +6,22 @@
 - Cierre rechazado con HTTP 409 si falta checklist completo o foto. Al cerrar se sella una huella de la orden (`orderDigest`).
 - Series temporales de `levelPct` y `ph` en Sensores; `levelPct` solo en nodos con sensor de nivel.
 ## 2. Capacidades que nacen de la interacción de tecnologías
-- **Forense hidráulica** (`src/core/leakForensics.ts`): balance de masa entre medidores + déficit de presión + foto ubican el tramo sospechoso y estiman L/s y m³/día. Resolución limitada al tramo entre dos medidores; el caudal es estimación, no medición.
-- **Concordancia multimodal** (`src/core/evidenceConcordance.ts`): sensores, foto y topología votan por separado; un conflicto limita la confianza al 55%, solo sensores al 70%.
-- **Expediente verificable** (`src/core/dossier.ts`, `scripts/verifyDossier.ts`): JSON portable con cadena, foto y huella de la orden, verificable offline. Prueba integridad, no autoría (no es firma digital).
+- **Diagnóstico hidráulico** (`src/core/hydraulicDiagnosis.ts`, reemplaza a la antigua forense circular): balance de masa por tramo con incertidumbre propagada de los medidores, persistencia de 2 muestras y corroboración por presión contra la pérdida de carga predicha. Niveles: datos insuficientes / sin anomalía / anomalía de caudal / posible fuga / fuga localizada. Resolución limitada al tramo entre dos medidores; el caudal perdido es estimación con su σ.
+- **Concordancia multimodal** (`src/core/evidenceConcordance.ts`): sensores, hidráulica y fotografía se evalúan por separado y producen un nivel de respaldo (baja/media/alta/en_conflicto), sin porcentajes. La foto solo cuenta si un proveedor real la analizó y está vinculada a ese incidente; un conflicto se reporta, nunca se promedia.
+- **Expediente verificable** (`src/core/dossier.ts`, `scripts/verifyDossier.ts`): formato `aqua-sentinel-dossier/2` con contenido congelado al cierre (orden, anomalía, telemetría, diagnóstico, visión, hidráulica, evidencia), huella por componente, recibo firmado Ed25519 y ancla externa. La verificación separa integridad, autenticidad (requiere clave fijada) e inmutabilidad (nunca garantizada).
 ## 3. Honestidad de proveedores y persistencia
-- Gemini: modelo configurable (`GEMINI_MODEL`, por defecto `gemini-2.5-flash`), reintento ante 429/5xx, sonda `POST /api/ai/probe`. Sin clave o ante fallo se usa el adaptador determinista y se declara.
-- La visión de respaldo no analiza píxeles: solo las imágenes de demostración empaquetadas tienen anotación predefinida y se rotula como tal.
+- Gemini: modelo configurable (`GEMINI_MODEL`); el valor por defecto `gemini-2.5-flash` NO está validado con clave real y figura como heredado en la documentación de Google. Reintento ante 429/5xx, presupuesto total de tiempo, respuestas validadas por esquema, sonda `POST /api/ai/probe`. Sin clave o ante fallo se usa el adaptador determinista y se declara.
+- La visión de respaldo no analiza píxeles ni clasifica por nombre/ruta/URL: devuelve "no analizada". Solo un proveedor real (Gemini con clave) puede analizar la imagen.
 - Persistencia: archivo local (`AQUA_STATE_PATH`), riesgo efímero informado en `/api/health`, snapshot exportable/importable que valida la cadena antes de aceptar (`src/server/snapshot.ts`).
 - Adaptadores AWS (S3, Lambda, DynamoDB) son SIMULADOS; Bedrock no está configurado.
 ## 4. Requisitos Formales y Trazabilidad
 - **REQ-DET-04**: Arbitrar leak vs calidad: la deriva de cloro/pH no oculta una fuga; turbidez > 4 NTU con caída de presión escala a contaminación conservando la regla de fuga.
 - **REQ-WO-02**: Checklist interactivo y asignación de responsable persistidos y registrados en el ledger.
 - **REQ-WO-03**: Evidencia fotográfica de cierre validada, direccionada por SHA-256 y obligatoria para cerrar.
-- **REQ-HYD-02**: Localizar tramo sospechoso y estimar pérdida a partir del balance de masa, sin afirmar certeza que los medidores no dan.
-- **REQ-AI-02**: Reportar concordancia entre canales y limitar la confianza calibrada ante conflicto o evidencia única.
+- **REQ-HYD-02**: Localizar el tramo sospechoso y estimar la pérdida con el balance de masa, declarando incertidumbre; ver REQ-HYD-03..06 en la especificación 07.
+- **REQ-AI-02**: Reportar la concordancia entre canales como nivel de respaldo (sin porcentaje) y marcar conflicto cuando los canales se contradicen.
 - **REQ-AI-03**: Estado Gemini honesto (modelo, verificación real, errores) y visión de respaldo sin interpretar fotos no empaquetadas.
-- **REQ-LED-02**: Entradas del ledger con `evidenceData` verificable y expediente portable verificable offline.
+- **REQ-LED-02**: Entradas del ledger con `evidenceData` cubiertas por el hash; expediente portable verificable offline (ver REQ-LED-03..07).
 - **REQ-PER-02**: Informar riesgo de persistencia efímera y permitir snapshot verificado.
 - **REQ-DEMO-01**: Modo demo reproducible (`POST /api/demo/frankenstein`) con datos sintéticos rotulados, sin servicios externos.
 | Requisito | Implementación | Prueba / Verificación |
@@ -29,7 +29,7 @@
 | `REQ-DET-04` | `src/core/deterministicEngine.ts` | `src/core/deterministicEngine.test.ts` |
 | `REQ-WO-02` | `src/core/workOrders.ts`, `src/components/WorkOrdersView.tsx`, `server.ts` | `src/core/workOrders.test.ts`, `src/server/e2e.test.ts` |
 | `REQ-WO-03` | `src/server/evidenceStore.ts`, `src/core/workOrders.ts`, `server.ts` | `src/server/evidenceStore.test.ts`, `src/server/e2e.test.ts` |
-| `REQ-HYD-02` | `src/core/leakForensics.ts`, `src/components/EvidencePanels.tsx` | `src/core/leakForensics.test.ts` |
+| `REQ-HYD-02` | `src/core/hydraulicDiagnosis.ts`, `src/components/EvidencePanels.tsx` | `src/core/hydraulicDiagnosis.test.ts` |
 | `REQ-AI-02` | `src/core/evidenceConcordance.ts`, `src/components/EvidencePanels.tsx` | `src/core/evidenceConcordance.test.ts` |
 | `REQ-AI-03` | `src/server/aiProvider.ts`, `src/components/OperationsHealthPanel.tsx` | `src/server/aiProvider.test.ts`, `src/server/e2e.test.ts` |
 | `REQ-LED-02` | `src/core/cryptoLedger.ts`, `src/core/dossier.ts`, `scripts/verifyDossier.ts` | `src/core/cryptoLedger.test.ts`, `src/server/e2e.test.ts` |

@@ -1,3 +1,4 @@
+import { assessMassBalances } from './hydraulicDiagnosis';
 import {
   AnomalyEvent,
   HydraulicNetworkSummary,
@@ -30,52 +31,30 @@ export function getDownstreamNodeIds(startNodeId: string, pipes: PipeSegment[]):
   return ordered;
 }
 
+/**
+ * Balance de masa por nodo. Delegado en assessMassBalances (hydraulicDiagnosis): el umbral ya no es un 4 L/s / 15% fijo
+ * sino la incertidumbre propagada de los medidores y de la demanda no medida, con factor de demanda estimado.
+ * Los nodos no evaluables (tanques, lecturas no sincronizadas, medidores en falla) no producen informe.
+ */
 export function evaluatePipeMassBalances(
   nodes: NetworkNode[],
   pipes: PipeSegment[]
 ): MassBalanceReport[] {
-  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
-  const reports: MassBalanceReport[] = [];
-
-  for (const node of nodes) {
-    const outgoing = pipes.filter((p) => p.from === node.id);
-    if (outgoing.length === 0) continue;
-
-    const children = outgoing
-      .map((p) => nodeMap.get(p.to))
-      .filter((n): n is NetworkNode => Boolean(n));
-    if (children.length === 0) continue;
-
-    const inflowLs = node.current.flowLs;
-    const outflowSumLs = Number(
-      children.reduce((acc, c) => acc + c.current.flowLs, 0).toFixed(2)
-    );
-    const baselineOutflow = children.reduce((acc, c) => acc + c.baseline.flowLs, 0);
-    const baselineResidualLs = Number((node.baseline.flowLs - baselineOutflow).toFixed(2));
-    const currentResidualLs = Number((inflowLs - outflowSumLs).toFixed(2));
-    const deviationLs = Number((currentResidualLs - baselineResidualLs).toFixed(2));
-    const imbalancePct = Number(
-      ((Math.abs(deviationLs) / Math.max(1, node.baseline.flowLs)) * 100).toFixed(1)
-    );
-
-    const flagged = Math.abs(deviationLs) >= 4.0 && imbalancePct >= 15;
-
-    reports.push({
-      nodeId: node.id,
-      nodeName: node.name,
-      inflowLs,
-      outflowSumLs,
-      baselineResidualLs,
-      currentResidualLs,
-      deviationLs,
-      imbalancePct,
-      flagged,
-    });
-  }
-
-  return reports;
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  return assessMassBalances(nodes, pipes)
+    .balances.filter((b) => b.state !== 'not_evaluable')
+    .map((b) => ({
+      nodeId: b.nodeId,
+      nodeName: b.nodeName,
+      inflowLs: b.inflowLs,
+      outflowSumLs: b.outflowSumLs,
+      baselineResidualLs: b.expectedResidualLs,
+      currentResidualLs: Number((b.inflowLs - b.outflowSumLs).toFixed(2)),
+      deviationLs: b.deviationLs,
+      imbalancePct: Number(((Math.abs(b.deviationLs) / Math.max(1, byId.get(b.nodeId)!.baseline.flowLs)) * 100).toFixed(1)),
+      flagged: b.state === 'excess' || b.state === 'deficit',
+    }));
 }
-
 export function analyzeNetworkHydraulics(
   nodes: NetworkNode[],
   pipes: PipeSegment[],

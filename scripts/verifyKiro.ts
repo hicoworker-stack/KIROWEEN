@@ -95,8 +95,10 @@ function validateSpecsAndTraceability(hook: VerifyIntegrityHook): string[] {
 
   const diskTests = collectTestFiles(path.resolve(ROOT, 'src'));
   const unitCheckCmd = hook.checks.map((c) => c.command).join(' ');
+  const coversAll = unitCheckCmd.includes('src/**/*.test.ts');
+  if (diskTests.length === 0) fail('No hay archivos de prueba en src/.');
   for (const testFile of diskTests) {
-    if (!unitCheckCmd.includes(testFile)) {
+    if (!coversAll && !unitCheckCmd.includes(testFile)) {
       fail(`El archivo de prueba ${testFile} no está incluido en .kiro/hooks/verify-integrity.json`);
     }
   }

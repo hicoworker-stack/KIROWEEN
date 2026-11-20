@@ -29,6 +29,9 @@ import {
   VisionAnalysisResult,
   WorkOrderStatus,
 } from './core/types';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { HydraulicDiagnosis } from './core/hydraulicDiagnosis';
+import { destructiveFetch, readServerMessage } from './client/adminFetch';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { CommandCenterView } from './components/CommandCenterView';
 import { SensorIntelligenceView } from './components/SensorIntelligenceView';
@@ -126,6 +129,10 @@ export default function App() {
     awsAdapters: {},
   });
 
+  const [hydraulic, setHydraulic] = useState<HydraulicDiagnosis | null>(null);
+  const [persistenceStatus, setPersistenceStatus] = useState<{ mode: 'disk' | 'memory-only'; lastError: string | null } | null>(null);
+  const [integrity, setIntegrity] = useState<{ status: 'ok' | 'degraded' | 'compromised'; issues: string[] } | null>(null);
+
   const [selectedNodeId, setSelectedNodeId] = useState<string>('N-TOMA-01');
   const [isBusy, setIsBusy] = useState(false);
   const [isSimulatorRunning, setIsSimulatorRunning] = useState(false);
@@ -146,18 +153,27 @@ export default function App() {
     }, 4000);
   }, []);
 
+  /** Aplica el estado que envía el servidor. Cada campo se valida: un dato inesperado se ignora, no deja la interfaz en blanco. */
+  const applyServerState = useCallback((data: Record<string, any>) => {
+    if (Array.isArray(data.nodes)) setNodes(data.nodes);
+    if (data.seriesByNode && typeof data.seriesByNode === 'object') setSeriesByNode(data.seriesByNode);
+    if (Array.isArray(data.anomalies)) setAnomalies(data.anomalies);
+    if (Array.isArray(data.visionAnalyses)) setVisionAnalyses(data.visionAnalyses);
+    if (Array.isArray(data.diagnoses)) setDiagnoses(data.diagnoses);
+    if (Array.isArray(data.workOrders)) setWorkOrders(data.workOrders);
+    if (Array.isArray(data.ledger)) setLedger(data.ledger);
+    if ('hydraulic' in data) setHydraulic(data.hydraulic ?? null);
+    if (data.provider) setProviderStatus(data.provider);
+    if (data.persistence) setPersistenceStatus(data.persistence);
+    if (data.integrity) setIntegrity(data.integrity);
+  }, []);
+
   const hydrateState = useCallback(async () => {
     try {
       const res = await fetch('/api/state');
       if (!res.ok) return;
       const data = await res.json();
-      setNodes(data.nodes);
-      setSeriesByNode(data.seriesByNode);
-      setAnomalies(data.anomalies);
-      setVisionAnalyses(data.visionAnalyses);
-      setDiagnoses(data.diagnoses);
-      setWorkOrders(data.workOrders);
-      setLedger(data.ledger);
+      applyServerState(data);
       if (data.provider) setProviderStatus(data.provider);
     } catch {
       // Backend unavailable: keep baseline state
@@ -199,14 +215,7 @@ export default function App() {
     const handleUpdate = (event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data);
-        if (Array.isArray(data.nodes)) setNodes(data.nodes);
-        if (data.seriesByNode) setSeriesByNode(data.seriesByNode);
-        if (Array.isArray(data.anomalies)) setAnomalies(data.anomalies);
-        if (Array.isArray(data.visionAnalyses)) setVisionAnalyses(data.visionAnalyses);
-        if (Array.isArray(data.diagnoses)) setDiagnoses(data.diagnoses);
-        if (Array.isArray(data.workOrders)) setWorkOrders(data.workOrders);
-        if (Array.isArray(data.ledger)) setLedger(data.ledger);
-        if (data.provider) setProviderStatus(data.provider);
+        applyServerState(data);
       } catch {
         // ignore malformed SSE chunk
       }
@@ -216,7 +225,7 @@ export default function App() {
       source.removeEventListener('state_update', handleUpdate);
       source.close();
     };
-  }, [showWelcome]);
+  }, [showWelcome, applyServerState]);
 
   // Real-time IoT simulator loop
   useEffect(() => {
@@ -249,10 +258,7 @@ export default function App() {
         });
         if (res.ok) {
           const data = await res.json();
-          setNodes(data.nodes);
-          setSeriesByNode(data.seriesByNode);
-          setAnomalies(data.anomalies);
-          setLedger(data.ledger);
+          applyServerState(data);
         }
       } catch {
         // ignore transient tick errors
@@ -268,14 +274,11 @@ export default function App() {
       const res = await fetch(`/api/scenarios/${id}/trigger`, { method: 'POST' });
       const data = await res.json();
       if (res.ok) {
-        setNodes(data.nodes);
-        setSeriesByNode(data.seriesByNode);
-        setAnomalies(data.anomalies);
-        setVisionAnalyses(data.visionAnalyses);
-        setDiagnoses(data.diagnoses);
-        setLedger(data.ledger);
+        applyServerState(data);
         setSelectedNodeId(data.scenario.nodeId);
         notify(`Escenario "${data.scenario.label}" ejecutado y registrado en Trust Ledger.`);
+      } else {
+        notify(data.error ?? 'No se pudo ejecutar el escenario.');
       }
     } finally {
       setIsBusy(false);
@@ -285,18 +288,14 @@ export default function App() {
   const handleResetDemo = async () => {
     setIsBusy(true);
     try {
-      const res = await fetch('/api/reset', { method: 'POST' });
-      const data = await res.json();
+      const res = await destructiveFetch('/api/reset', 'reset');
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        setNodes(data.nodes);
-        setSeriesByNode(data.seriesByNode);
-        setAnomalies(data.anomalies);
-        setVisionAnalyses(data.visionAnalyses);
-        setDiagnoses(data.diagnoses);
-        setWorkOrders(data.workOrders);
-        setLedger(data.ledger);
+        applyServerState(data);
         setGuidedStepIdx(null);
-        notify('Red comunitaria restablecida a línea base nominal.');
+        notify('Red restablecida a línea base nominal. El estado anterior se archivó en el servidor.');
+      } else {
+        notify(data.error ?? await readServerMessage(res, 'No se pudo restablecer la red.'));
       }
     } finally {
       setIsBusy(false);
@@ -313,10 +312,7 @@ export default function App() {
     });
     const data = await res.json();
     if (res.ok) {
-      setNodes(data.nodes);
-      setSeriesByNode(data.seriesByNode);
-      setAnomalies(data.anomalies);
-      setLedger(data.ledger);
+      applyServerState(data);
     }
     return {
       ingestedCount: data.ingestedCount ?? 0,
@@ -338,8 +334,7 @@ export default function App() {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Error en análisis visual');
-    setVisionAnalyses(data.visionAnalyses);
-    setLedger(data.ledger);
+    applyServerState(data);
     notify('Análisis multimodal completado y registrado en Trust Ledger.');
     return data.analysis;
   };
@@ -352,8 +347,7 @@ export default function App() {
     });
     const data = await res.json();
     if (res.ok) {
-      setDiagnoses(data.diagnoses);
-      setLedger(data.ledger);
+      applyServerState(data);
       notify('Diagnóstico generado en Aqua Brain.');
     }
   };
@@ -374,9 +368,7 @@ export default function App() {
     });
     const data = await res.json();
     if (res.ok) {
-      setDiagnoses(data.diagnoses);
-      setWorkOrders(data.workOrders);
-      setLedger(data.ledger);
+      applyServerState(data);
       if (data.createdOrder) {
         notify(`Orden ${data.createdOrder.id} emitida y sellada en Trust Ledger.`);
       } else {
@@ -392,11 +384,7 @@ export default function App() {
     seriesByNode: Record<string, TelemetryReading[]>;
     ledger: TrustLedgerEntry[];
   }) => {
-    setWorkOrders(data.workOrders);
-    setAnomalies(data.anomalies);
-    setNodes(data.nodes);
-    setSeriesByNode(data.seriesByNode);
-    setLedger(data.ledger);
+    applyServerState(data);
   };
 
   /** Llama a la API de órdenes; si el servidor rechaza, lanza el mensaje real para mostrarlo en la UI. */
@@ -460,20 +448,10 @@ export default function App() {
     setShowWelcome(false);
     setIsBusy(true);
     try {
-      const res = await fetch('/api/demo/frankenstein', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json();
+      const res = await destructiveFetch('/api/demo/frankenstein', 'demo');
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'No se pudo iniciar el modo demo.');
-      setNodes(data.nodes);
-      setSeriesByNode(data.seriesByNode);
-      setAnomalies(data.anomalies);
-      setVisionAnalyses(data.visionAnalyses);
-      setDiagnoses(data.diagnoses);
-      setWorkOrders(data.workOrders ?? []);
-      setLedger(data.ledger);
+      applyServerState(data);
       setSelectedNodeId(data.scenario.nodeId);
       setActiveView('command-center');
       setGuidedStepIdx(0);
@@ -517,7 +495,7 @@ export default function App() {
       }
       const refreshed = await listOfflineReports();
       setOfflineReports(refreshed);
-      setLedger(data.ledger);
+      applyServerState(data);
       if (data.visionAnalyses) setVisionAnalyses(data.visionAnalyses);
       if (data.anomalies) setAnomalies(data.anomalies);
       if (data.diagnoses) setDiagnoses(data.diagnoses);
@@ -687,6 +665,18 @@ export default function App() {
 
         {/* Main Content Viewport */}
         <main className="flex-1 min-w-0 p-4 lg:p-6 max-w-[1320px] w-full mx-auto space-y-5">
+          {persistenceStatus?.mode === 'memory-only' && (
+            <div role="alert" className="px-4 py-2.5 rounded-lg bg-[#2A1B08] border border-amber-500/60 text-xs text-amber-200">
+              El servidor no puede escribir su estado en disco: los datos solo existen en memoria y se perderán al reiniciarlo. Exporta un snapshot desde «Offline e Integraciones».
+              {persistenceStatus.lastError ? ` Último error: ${persistenceStatus.lastError}` : ''}
+            </div>
+          )}
+          {integrity && integrity.status !== 'ok' && (
+            <div role="alert" className={`px-4 py-2.5 rounded-lg border text-xs ${integrity.status === 'compromised' ? 'bg-[#2A0B14] border-rose-500/60 text-rose-200' : 'bg-[#2A1B08] border-amber-500/60 text-amber-200'}`}>
+              Integridad del estado: <strong>{integrity.status === 'compromised' ? 'COMPROMETIDA' : 'con avisos'}</strong>. {integrity.issues.slice(0, 2).join(' · ')}
+            </div>
+          )}
+
           {/* Guided Demo Interactive Stepper */}
           {activeGuidedStep && (
             <div className="bg-[#0A2231] border border-cyan-500/40 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
@@ -753,12 +743,13 @@ export default function App() {
             </div>
           )}
 
+          <ErrorBoundary scope={NAV_ITEMS.find((n) => n.id === activeView)?.label} resetKey={activeView}>
           {activeView === 'command-center' && (
             <CommandCenterView
               nodes={nodes}
               pipes={NETWORK_PIPES}
               anomalies={anomalies}
-              visionAnalyses={visionAnalyses}
+              hydraulic={hydraulic}
               scenarios={DIFFERENTIAL_SCENARIOS}
               selectedNodeId={selectedNodeId}
               onSelectNode={setSelectedNodeId}
@@ -796,8 +787,7 @@ export default function App() {
             <AquaBrainView
               diagnoses={diagnoses}
               anomalies={anomalies}
-              nodes={nodes}
-              pipes={NETWORK_PIPES}
+              hydraulic={hydraulic}
               visionAnalyses={visionAnalyses}
               selectedNodeId={selectedNodeId}
               onGenerateDiagnosis={handleGenerateDiagnosis}
@@ -834,12 +824,9 @@ export default function App() {
               onRefreshState={hydrateState}
             />
           )}
+          </ErrorBoundary>
         </main>
       </div>
     </div>
   );
 }
-
-
-
-

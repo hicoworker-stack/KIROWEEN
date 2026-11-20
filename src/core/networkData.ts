@@ -80,7 +80,7 @@ export function createBaselineNodes(): NetworkNode[] {
       kind: 'junction',
       x: 635,
       y: 110,
-      elevationM: 1750,
+      elevationM: 1853.3,
       populationServed: 1950,
       assetCode: 'ACT-PVC-204',
       material: 'PVC Presión PN10',
@@ -101,7 +101,7 @@ export function createBaselineNodes(): NetworkNode[] {
       kind: 'valve',
       x: 470,
       y: 255,
-      elevationM: 1720,
+      elevationM: 1853.8,
       populationServed: 1750,
       assetCode: 'ACT-VALV-055',
       material: 'Hierro Fundido Bridado',
@@ -122,7 +122,7 @@ export function createBaselineNodes(): NetworkNode[] {
       kind: 'distribution',
       x: 785,
       y: 165,
-      elevationM: 1705,
+      elevationM: 1848.7,
       populationServed: 1420,
       assetCode: 'ACT-DIST-061',
       material: 'HDPE PE100',
@@ -143,7 +143,7 @@ export function createBaselineNodes(): NetworkNode[] {
       kind: 'distribution',
       x: 665,
       y: 295,
-      elevationM: 1690,
+      elevationM: 1850.4,
       populationServed: 1100,
       assetCode: 'ACT-DIST-074',
       material: 'PVC PN10',
@@ -229,27 +229,22 @@ export const NETWORK_PIPES: PipeSegment[] = [
   },
 ];
 
+/**
+ * Metadatos de los 4 escenarios de la demostración. Las LECTURAS que los materializan NO viven aquí:
+ * las genera src/sim/scenarioGenerator.ts con un solver hidráulico y entran por la ingesta como cualquier dato,
+ * de modo que el motor de diagnóstico no sabe qué escenario es (REQ-HYD-04).
+ */
 export const DIFFERENTIAL_SCENARIOS: ScenarioDefinition[] = [
   {
     id: 'leak',
     label: '1. Fuga en Troncal',
-    shortTitle: 'Fuga hidráulica en Sector Norte',
+    shortTitle: 'Pérdida de caudal en el tramo Troncal Norte → Centro Cívico',
     nodeId: 'N-TRON-04',
     category: 'leak',
     summary:
-      'Caída abrupta de presión (-42%) en Troncal Sector Norte con divergencia de caudal (+29%) y evidencia fotográfica de brida PVC fracturada.',
+      'Rotura sintética de 12 L/s (a presión nominal) generada por un solver hidráulico. El balance de masa entre los medidores N-TRON-04 y N-DIST-06 y la respuesta de presión del tramo aguas arriba permiten concluir con incertidumbre explícita. Una fotografía de apoyo solo cuenta si un proveedor de visión la analiza.',
     imageUrl: DEMO_PHOTO_ASSETS.leak,
-    imageTitle: 'Inspección cámara Troncal Sector Norte — Brida PVC con descarga activa',
-    injectedReading: {
-      nodeId: 'N-TRON-04',
-      pressureBar: 2.61,
-      flowLs: 29.4,
-      levelPct: 0,
-      turbidityNtu: 0.7,
-      chlorineMgL: 0.86,
-      ph: 7.2,
-      synthetic: true,
-    },
+    imageTitle: 'Inspección cámara Troncal Sector Norte (fotografía de demostración)',
   },
   {
     id: 'obstruction',
@@ -258,19 +253,9 @@ export const DIFFERENTIAL_SCENARIOS: ScenarioDefinition[] = [
     nodeId: 'N-VALV-05',
     category: 'obstruction',
     summary:
-      'Reducción severa de caudal (-54%) aguas abajo de Cámara Válvula Sur acompañada de sobrepresión previa (+26%) y corrosión severa en compuerta.',
+      'Reducción severa de caudal acompañada de sobrepresión previa en Cámara Válvula Sur (lectura sintética de demostración).',
     imageUrl: DEMO_PHOTO_ASSETS.obstruction,
-    imageTitle: 'Cámara Válvula Sur — Válvula de compuerta oxidada con incrustaciones calcáreas',
-    injectedReading: {
-      nodeId: 'N-VALV-05',
-      pressureBar: 5.29,
-      flowLs: 8.4,
-      levelPct: 0,
-      turbidityNtu: 0.9,
-      chlorineMgL: 0.81,
-      ph: 7.3,
-      synthetic: true,
-    },
+    imageTitle: 'Cámara Válvula Sur (fotografía de demostración)',
   },
   {
     id: 'sensor_fault',
@@ -279,38 +264,18 @@ export const DIFFERENTIAL_SCENARIOS: ScenarioDefinition[] = [
     nodeId: 'N-TANQ-03',
     category: 'sensor_fault',
     summary:
-      'El nodo reporta turbidez negativa (-1.4 NTU) y caudal cero (0.0 L/s) mientras mantiene 4.9 bar de presión sin cierre de válvula.',
-    injectedReading: {
-      nodeId: 'N-TANQ-03',
-      pressureBar: 4.9,
-      flowLs: 0.0,
-      levelPct: 81,
-      turbidityNtu: -1.4,
-      chlorineMgL: 0.94,
-      ph: 7.2,
-      synthetic: true,
-    },
+      'El nodo reporta turbidez negativa y caudal cero mientras mantiene presión alta sin cierre de válvula (lectura sintética de demostración).',
   },
   {
     id: 'contamination',
     label: '4. Posible Contaminación',
-    shortTitle: 'Anomalía de calidad y reporte visual en Bocatoma',
+    shortTitle: 'Anomalía de calidad en Bocatoma',
     nodeId: 'N-TOMA-01',
     category: 'contamination',
     summary:
-      'Turbidez en 14.8 NTU (línea base 1.2 NTU) y descenso de cloro libre a 0.16 mg/L junto con fotografía ciudadana de arrastre de sedimentos en bocatoma.',
+      'Turbidez y cloro libre fuera de rango en Bocatoma Quebrada Alta (lectura sintética de demostración). Una fotografía solo cuenta si un proveedor de visión la analiza.',
     imageUrl: DEMO_PHOTO_ASSETS.contamination,
-    imageTitle: 'Reporte en Bocatoma Quebrada Alta — Agua turbia marrón con arrastre de sedimentos',
-    injectedReading: {
-      nodeId: 'N-TOMA-01',
-      pressureBar: 1.45,
-      flowLs: 52.3,
-      levelPct: 88,
-      turbidityNtu: 14.8,
-      chlorineMgL: 0.16,
-      ph: 6.2,
-      synthetic: true,
-    },
+    imageTitle: 'Reporte en Bocatoma Quebrada Alta (fotografía de demostración)',
   },
 ];
 
@@ -341,4 +306,3 @@ export const SAMPLE_CSV_PAYLOAD = `timestamp,nodeId,pressureBar,flowLs,levelPct,
 2026-11-18T12:55:00Z,N-TRON-04,2.58,29.8,0,0.7,0.85,7.2
 2026-11-18T12:56:00Z,N-VALV-05,5.34,8.1,0,0.9,0.80,7.3
 2026-11-18T12:58:00Z,N-TOMA-01,1.46,52.0,88,15.1,0.15,6.1`;
-

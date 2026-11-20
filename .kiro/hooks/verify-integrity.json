@@ -1,6 +1,6 @@
 {
   "name": "aqua-sentinel-integrity-hook",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Hook de verificación continua para trazabilidad Kiro REQ-*, motor determinista, hidrología de grafo, persistencia, proveedor IA, ledger SHA-256, TypeScript y compilación.",
   "triggers": ["onSave:src/**/*.ts", "onSave:.kiro/specs/*.md", "preBuild"],
   "traceability": {
@@ -11,7 +11,7 @@
   "checks": [
     {
       "id": "unit-tests-all",
-      "command": "npx --yes tsx --test src/core/cryptoLedger.test.ts src/core/deterministicEngine.test.ts src/core/evidenceConcordance.test.ts src/core/graphHydrology.test.ts src/core/leakForensics.test.ts src/core/workOrders.test.ts src/server/aiProvider.test.ts src/server/e2e.test.ts src/server/evidenceStore.test.ts src/server/persistence.test.ts src/server/snapshot.test.ts",
+      "command": "npx --yes tsx --test \"src/**/*.test.ts\"",
       "required": true
     },
     {
