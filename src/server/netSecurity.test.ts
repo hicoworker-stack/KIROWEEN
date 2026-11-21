@@ -136,3 +136,22 @@ test('matriz de permisos: VIEWER solo consulta, OPERATOR opera, ADMIN administra
   assert.equal(can('ROOT' as never, 'state:read'), false);
   assert.ok(ROLE_PERMISSIONS.OPERATOR.size > ROLE_PERMISSIONS.VIEWER.size && ROLE_PERMISSIONS.ADMIN.size > ROLE_PERMISSIONS.OPERATOR.size);
 });
+
+test('REQ-PUB-03: la CSP solo deja reproducir video del propio servidor, salvo orígenes https autorizados de forma explícita', () => {
+  assert.match(cspFor(prod()), /media-src 'self'(;|$)/);
+  assert.match(cspFor(dev()), /media-src 'self'(;|$)/);
+  const withCdn = cspFor(prod({ AQUA_MEDIA_ORIGINS: 'https://cdn.ejemplo.org, https://videos.ejemplo.org:8443/' }));
+  assert.match(withCdn, /media-src 'self' https:\/\/cdn\.ejemplo\.org https:\/\/videos\.ejemplo\.org:8443(;|$)/);
+  assert.throws(() => prod({ AQUA_MEDIA_ORIGINS: 'http://cdn.ejemplo.org' }), SecurityConfigError, 'solo https');
+  assert.throws(() => prod({ AQUA_MEDIA_ORIGINS: 'https://cdn.ejemplo.org/ruta' }), SecurityConfigError, 'solo orígenes, sin ruta');
+  assert.throws(() => prod({ AQUA_MEDIA_ORIGINS: 'no-es-url' }), SecurityConfigError);
+  assert.ok(!/media-src[^;]*\*/.test(withCdn), 'sin comodines');
+});
+
+test('REQ-PUB-01: el rol VISITOR de la matriz solo lee estado y fotos, y es estrictamente menor que Lector', () => {
+  assert.equal(can('VISITOR', 'state:read'), true);
+  assert.equal(can('VISITOR', 'evidence:read'), true);
+  for (const p of PERMISSIONS.filter((x) => x !== 'state:read' && x !== 'evidence:read')) assert.equal(can('VISITOR', p), false, `VISITOR no debe tener ${p}`);
+  for (const p of ROLE_PERMISSIONS.VISITOR) assert.equal(can('VIEWER', p), true, 'todo lo que puede un visitante lo puede un lector');
+  assert.ok(ROLE_PERMISSIONS.VISITOR.size < ROLE_PERMISSIONS.VIEWER.size);
+});

@@ -15,7 +15,9 @@ const TABS: Array<{ id: AdvancedTab; label: string; help: string }> = [
 
 /** Herramientas para personal técnico. Lo cotidiano vive en Inicio, Mapa, Incidentes y Órdenes. */
 export const AdvancedView: React.FC<{ tab: AdvancedTab; onTab: (t: AdvancedTab) => void; role: Role; children: React.ReactNode }> = ({ tab, onTab, role, children }) => {
-  const current = TABS.find((t) => t.id === tab) ?? TABS[0];
+  // El visitante del modo público no puede lanzar nada: su pestaña de demostración no tendría ninguna acción disponible.
+  const tabs = TABS.filter((t) => !(t.id === 'demo' && role === 'VISITOR'));
+  const current = tabs.find((t) => t.id === tab) ?? tabs[0];
   return (
     <div className="space-y-6">
       <header className="space-y-1">
@@ -23,7 +25,7 @@ export const AdvancedView: React.FC<{ tab: AdvancedTab; onTab: (t: AdvancedTab) 
         <p className="text-base text-soft">Para revisar el detalle técnico. No hace falta usarlas en el trabajo diario.</p>
       </header>
       <div role="tablist" aria-label="Herramientas avanzadas" className="-mx-4 flex gap-1 overflow-x-auto border-b border-line px-4 sm:mx-0 sm:px-0">
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <button
             key={t.id}
             id={`adv-tab-${t.id}`}

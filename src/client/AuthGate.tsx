@@ -8,8 +8,14 @@ import { setPasswordPrompter } from './adminFetch';
  */
 export interface Session {
   user: SessionUser;
+  /** Con sesión: cierra la sesión. Como visitante del modo público: abre el inicio de sesión. */
   logout: () => void;
+  /** Visitante anónimo del modo público (solo lectura, sin cuenta). */
+  visitor: boolean;
 }
+
+/** Identidad de presentación del visitante: no existe en el servidor y no concede ningún permiso por sí misma. */
+export const VISITOR_USER: SessionUser = { id: 'public-visitor', username: 'visitante', displayName: 'Visitante', role: 'VISITOR' };
 
 const field = 'w-full rounded-md bg-[#0A1F2D] border border-[#18364A] px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-cyan-400';
 const button = 'w-full rounded-md bg-cyan-500 hover:bg-cyan-400 text-[#041018] font-semibold text-sm py-2 disabled:opacity-50 cursor-pointer';
@@ -18,6 +24,7 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#06131C] text-[#E6F1F5] px-4">
       <div className="w-full max-w-sm rounded-xl border border-[#18364A] bg-[#08202E] p-6 space-y-4">
+        <img src="/images/logo-mark.png" alt="" width="56" height="56" className="h-14 w-14 object-contain" />
         <h1 className="text-lg font-semibold text-cyan-300">{title}</h1>
         {children}
       </div>
@@ -25,7 +32,7 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
   );
 }
 
-function LoginForm({ status, onDone }: { status: AuthStatus; onDone: (s: AuthStatus) => void }) {
+function LoginForm({ status, onDone, onBack }: { status: AuthStatus; onDone: (s: AuthStatus) => void; onBack?: () => void }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -92,6 +99,11 @@ function LoginForm({ status, onDone }: { status: AuthStatus; onDone: (s: AuthSta
           {busy ? 'Un momento…' : mode === 'setup' ? 'Crear administrador' : 'Entrar'}
         </button>
       </form>
+      {onBack && (
+        <button type="button" className="min-h-11 text-sm text-cyan-300 underline cursor-pointer" onClick={onBack}>
+          Volver a la demostración pública
+        </button>
+      )}
       {status.setupAvailable && (
         <button type="button" className="text-xs text-cyan-300 underline cursor-pointer" onClick={() => setMode(mode === 'setup' ? 'login' : 'setup')}>
           {mode === 'setup' ? 'Ya tengo una cuenta' : 'Configuración inicial'}
@@ -131,6 +143,7 @@ export function AuthGate({ children }: { children: (session: Session) => React.R
   const [status, setStatus] = useState<AuthStatus | null>(null);
   const [failed, setFailed] = useState(false);
   const [dialog, setDialog] = useState<{ message: string; resolve: (v: string | null) => void } | null>(null);
+  const [wantLogin, setWantLogin] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -167,10 +180,24 @@ export function AuthGate({ children }: { children: (session: Session) => React.R
     );
   }
   if (!status) return <Card title="Aqua Sentinel"><p className="text-sm text-slate-400">Comprobando sesión…</p></Card>;
-  if (!status.authenticated || !status.user) return <LoginForm key={String(status.csrfToken)} status={status} onDone={setStatus} />;
+  if (!status.authenticated || !status.user) {
+    // MODO PÚBLICO: se entra directamente como visitante (solo lectura). El inicio de sesión sigue disponible desde el menú.
+    if (status.publicMode && !wantLogin) return <>{children({ user: VISITOR_USER, visitor: true, logout: () => setWantLogin(true) })}</>;
+    return (
+      <LoginForm
+        key={String(status.csrfToken)}
+        status={status}
+        onBack={status.publicMode ? () => setWantLogin(false) : undefined}
+        onDone={(s) => {
+          setWantLogin(false);
+          setStatus(s);
+        }}
+      />
+    );
+  }
   return (
     <>
-      {children({ user: status.user, logout: () => void logout() })}
+      {children({ user: status.user, visitor: false, logout: () => void logout() })}
       {dialog && (
         <PasswordDialog
           message={dialog.message}

@@ -1,0 +1,39 @@
+VIDEO DE AQUA SENTINEL
+=======================
+Este es el video de la pantalla de Inicio: aqua-sentinel-explicativo.mp4.
+Es una ANIMACION ILUSTRATIVA (16,5 s, sin audio, datos simulados) generada con codigo;
+no es un video institucional con locucion ni imagenes de campo.
+Si el archivo no existe o enabled es false, la interfaz muestra la portada con
+"Video explicativo proximamente" y no simula ninguna reproduccion.
+
+Para reemplazarlo por otro video (sin tocar el codigo):
+
+1. Copia el video, en formato MP4 (H.264 + AAC) o WebM, en esta carpeta con el nombre:
+
+       aqua-sentinel-explicativo.mp4
+
+   Formato horizontal 16:9 (por ejemplo 1280x720 o 1920x1080). Conviene que pese pocos MB.
+
+2. Abre public/config/intro-video.json y cambia  "enabled": false  por  "enabled": true.
+   (Mientras sea false la interfaz ni siquiera pide el archivo, para no llenar de errores 404 la consola.)
+
+3. Si usas "npm run build", vuelve a compilar: el archivo se copia a dist/ al compilar.
+   En desarrollo (npm run public) basta con recargar la página.
+
+Para usar otro nombre, otra portada, subtítulos o un video alojado fuera, edita
+public/config/intro-video.json:
+
+   {
+     "enabled": true,                          false = todavía no hay video (se muestra «próximamente»)
+     "src": "/videos/mi-video.mp4",            ruta local dentro de /videos/ (.mp4 o .webm)
+                                                o una URL https que termine en .mp4 o .webm
+     "poster": "/images/video-poster.svg",     portada: archivo local dentro de /images/
+     "title": "Texto accesible del video",
+     "captions": "/videos/subtitulos-es.vtt"   subtítulos WebVTT opcionales, o null
+   }
+
+Si el video está en otro sitio (https://...), el servidor debe autorizar ese origen con
+la variable de entorno AQUA_MEDIA_ORIGINS=https://cdn.ejemplo.org, porque la política de
+seguridad del contenido (CSP) bloquea por defecto los videos de otros orígenes.
+
+La reproducción es siempre bajo demanda: nunca se inicia sola.

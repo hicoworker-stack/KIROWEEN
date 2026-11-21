@@ -3,7 +3,8 @@ import { ArrowRight, ClipboardList, FilePlus2, Map as MapIcon, Play, RefreshCw }
 import { can, Role } from '../core/permissions';
 import { AnomalyEvent, AquaBrainDiagnosis, NetworkNode, SmartWorkOrder, TelemetryReading } from '../core/types';
 import { HEALTH_META, MainView, networkSummary, nextActions, nodeHealth, timeAgo } from '../ui/vocab';
-import { Button, HEALTH_TONE, Notice, ProvenanceBadge, Skeleton, StatusPill, TONE, toneIcon } from './ui';
+import { HowItWorks, IntroSection, IntroVideo } from './IntroSection';
+import { Button, Disclosure, HEALTH_TONE, Notice, ProvenanceBadge, Skeleton, StatusPill, TONE, toneIcon } from './ui';
 
 export interface HomeViewProps {
   nodes: NetworkNode[];
@@ -50,9 +51,19 @@ export const HomeView: React.FC<HomeViewProps> = (p) => {
   const tone = HEALTH_TONE[summary.status];
   const Icon = toneIcon(tone);
   const canReport = can(p.role, 'offline:sync');
+  // Los visitantes del modo público ven primero la presentación del producto; quien trabaja con sesión, su estado operativo.
+  const visitor = p.role === 'VISITOR';
+  const Headline = visitor ? 'h2' : 'h1';
+  const noAct = visitor ? 'Estás en el modo público: puedes consultarlo, no actuar.' : 'Con tu rol puedes consultarlo, pero no actuar.';
 
   return (
     <div className="space-y-10">
+      {visitor && (
+        <>
+          <IntroSection onNavigate={p.onNavigate} />
+          <h2 className="border-t border-line pt-10 font-display text-xl font-semibold text-ink">Estado de la red ahora</h2>
+        </>
+      )}
       {p.loadError && (
         <Notice tone="attention" title="No se pudo actualizar" live="assertive">
           Estás viendo los últimos datos recibidos ({timeAgo(p.lastUpdatedAt, now)}). {p.loadError}{' '}
@@ -69,9 +80,9 @@ export const HomeView: React.FC<HomeViewProps> = (p) => {
         </span>
         <div className="min-w-0 space-y-2">
           <p className={`text-sm font-semibold ${TONE[tone].text}`}>{HEALTH_META[summary.status].label}</p>
-          <h1 id="home-status" className="font-display text-2xl font-semibold leading-tight text-ink sm:text-3xl">
+          <Headline id="home-status" className="font-display text-2xl font-semibold leading-tight text-ink sm:text-3xl">
             {summary.headline}
-          </h1>
+          </Headline>
           <p className="max-w-2xl text-base leading-relaxed text-soft">{summary.detail}</p>
           <p className="flex flex-wrap items-center gap-2 text-sm text-quiet">
             Red San Cristóbal de las Aguas · última lectura {timeAgo(summary.lastReadingAt, now)}
@@ -127,7 +138,7 @@ export const HomeView: React.FC<HomeViewProps> = (p) => {
                   <div className="min-w-0 flex-1">
                     <p className="text-base font-medium text-ink">{a.title}</p>
                     <p className="text-sm text-soft">{a.detail}</p>
-                    {!allowed && !isSync && <p className="mt-1 text-xs text-quiet">Con tu rol puedes consultarlo, pero no actuar.</p>}
+                    {!allowed && !isSync && <p className="mt-1 text-xs text-quiet">{noAct}</p>}
                   </div>
                   {isSync ? (
                     allowed ? (
@@ -135,7 +146,7 @@ export const HomeView: React.FC<HomeViewProps> = (p) => {
                         {a.cta}
                       </Button>
                     ) : (
-                      <span className="text-xs text-quiet">Solo operadores pueden enviarlos</span>
+                      <span className="text-xs text-quiet">{visitor ? 'Solo para usuarios con sesión' : 'Solo operadores pueden enviarlos'}</span>
                     )
                   ) : (
                     <Button variant={allowed && a.tone === 'critical' ? 'primary' : 'secondary'} onClick={onClick} icon={<ArrowRight className="h-4 w-4" />}>
@@ -184,6 +195,12 @@ export const HomeView: React.FC<HomeViewProps> = (p) => {
         </p>
       )}
 
+      {!visitor && (
+        <Disclosure summary="Qué es Aqua Sentinel y cómo funciona (video explicativo)">
+          <IntroVideo />
+          <HowItWorks />
+        </Disclosure>
+      )}
     </div>
   );
 };

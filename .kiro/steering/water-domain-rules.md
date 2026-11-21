@@ -22,3 +22,5 @@
 19. **Sin secretos en logs, archivos de datos ni respuestas**: contraseñas, tokens de sesión, CSRF, de operación, claves de IA y clave privada de sellado.
 20. **Procedencia visible**: la interfaz rotula cada dato como medido, declarado, inferido, hipótesis de IA o simulado; una hipótesis nunca se presenta como hecho y un dato simulado nunca como dato de campo.
 21. **Sin recuperación sin medición**: un punto no se muestra como recuperado hasta que existan mediciones reales posteriores al cierre de su orden.
+22. **Modo público acotado**: el acceso sin sesión es explícito (AQUA_PUBLIC_MODE), de solo lectura, limitado a una lista cerrada de rutas GET y con datos sintéticos aislados; nunca concede permisos de operador ni de administrador.
+23. **Nada se simula en silencio**: sin video publicado se muestra «próximamente» y no una reproducción; sin foto analizada, «sin analizar»; sin conexión, «sin conexión».

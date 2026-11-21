@@ -9,7 +9,7 @@ import type { NextFunction, Request, RequestHandler, Response } from 'express';
  *  - ADMIN:    además usuarios, auditoría, snapshot, sonda de IA y operaciones destructivas.
  */
 
-import { can, Permission } from '../core/permissions';
+import { can, Permission, ROLE_PERMISSIONS } from '../core/permissions';
 
 // La matriz vive en src/core/permissions.ts (la comparte la interfaz solo para mostrar u ocultar acciones).
 export { can, PERMISSIONS, ROLE_PERMISSIONS } from '../core/permissions';
@@ -35,6 +35,12 @@ export function needs(permission: Permission | typeof AUTHENTICATED_ONLY): Reque
   const handler: RequestHandler = (req: Request, res: Response, next: NextFunction) => {
     const user = req.auth?.user;
     if (!user) {
+      // MODO PÚBLICO: el visitante anónimo solo supera una comprobación si el permiso es de los del rol VISITOR
+      // y la ruta fue admitida por la lista cerrada de publicMode.ts. Cualquier otro permiso responde 401.
+      if (req.publicVisitor && permission !== AUTHENTICATED_ONLY && ROLE_PERMISSIONS.VISITOR.has(permission)) {
+        next();
+        return;
+      }
       res.status(401).json({ error: 'Autenticación requerida.' });
       return;
     }

@@ -44,7 +44,8 @@ const GUIDED_STEPS: Array<{ view: MainView; tab?: AdvancedTab; title: string; hi
 ];
 
 export default function App() {
-  return <AuthGate>{(session) => <AppInner user={session.user} onLogout={session.logout} />}</AuthGate>;
+  // key: al pasar de visitante a usuario (o al revés) la aplicación se vuelve a montar y recarga su estado con los permisos nuevos.
+  return <AuthGate>{(session) => <AppInner key={session.user.id} user={session.user} onLogout={session.logout} />}</AuthGate>;
 }
 
 function AppInner({ user, onLogout }: { user: SessionUser; onLogout: () => void }) {
@@ -114,6 +115,12 @@ function AppInner({ user, onLogout }: { user: SessionUser; onLogout: () => void 
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
+
+  // Al entrar o salir de una sesión se vuelve a Inicio (la aplicación se monta de nuevo leyendo la URL).
+  const handleLogout = () => {
+    if (typeof window !== 'undefined') window.location.hash = hashFor('home');
+    onLogout();
+  };
 
   const openIncident = (id: string) => {
     setSelectedIncidentId(id);
@@ -419,7 +426,7 @@ function AppInner({ user, onLogout }: { user: SessionUser; onLogout: () => void 
       case 'evidencia':
         return <VisionIntelligenceView nodes={nodes} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId} visionAnalyses={visionAnalyses} onAnalyzeVision={handleAnalyzeVision} canAnalyze={can(user.role, 'ai:use')} />;
       case 'ledger':
-        return <TrustLedgerView ledger={ledger} />;
+        return <TrustLedgerView ledger={ledger} serverVerify={can(user.role, 'dossier:verify')} />;
       case 'conectividad':
         return (
           <IntegrationsAndOfflineView
@@ -468,7 +475,7 @@ function AppInner({ user, onLogout }: { user: SessionUser; onLogout: () => void 
         if (v === 'orders') setSelectedOrderId(null);
         navigate(v);
       }}
-      onLogout={onLogout}
+      onLogout={handleLogout}
     >
       <div className="space-y-6">
         {persistenceStatus?.mode === 'memory-only' && (

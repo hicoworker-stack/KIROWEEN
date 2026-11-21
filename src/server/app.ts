@@ -74,6 +74,7 @@ import { AUTHENTICATED_ONLY, can, needs } from './authz';
 import { AuthStore, AuthStoreOptions, DEFAULT_ABSOLUTE_MS, DEFAULT_IDLE_MS } from './authStore';
 import { loadSecurityConfig, SecurityConfig } from './netSecurity';
 import { OperationTokens } from './operationTokens';
+import { assertPublicStateIsSynthetic, isPublicModeEnabled, redactForVisitor } from './publicMode';
 import { RateLimiter, parseRateLimitEnv, LimitSpec, BucketName } from './rateLimit';
 import {
   checkAnchorAgainstLedger,
@@ -124,8 +125,10 @@ export interface AppOptions {
   now?: () => number;
   authStoreOptions?: AuthStoreOptions;
   auditAppendLine?: (file: string, line: string) => void;
-  /** Habilita el asistente de primer administrador por HTTP. Por defecto: solo fuera de producción o con AQUA_SETUP_ENABLED=1. */
+  /** Habilita el asistente de primer administrador por HTTP. Por defecto: solo fuera de producción o con AQUA_SETUP_ENABLED=1 (y nunca en modo público). */
   setupEnabled?: boolean;
+  /** MODO PÚBLICO: visitantes anónimos de solo lectura en rutas GET acotadas. Por defecto lo decide AQUA_PUBLIC_MODE. */
+  publicMode?: boolean;
 }
 
 export interface AppHandle {
@@ -133,6 +136,7 @@ export interface AppHandle {
   shutdown(): void;
   /** Solo para pruebas y diagnóstico. */
   inspect(): { epoch: number; integrity: IntegrityStatus };
+  publicMode: boolean;
   authStore: AuthStore;
   audit: AuditLog;
   /** Código de un solo uso para crear el primer administrador (null si ya existe uno o el asistente está deshabilitado). */
@@ -169,7 +173,9 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
   const mutex = new Mutex();
   const persistence = new PersistenceTracker(statePath);
   const keys = loadOrCreateSealKeys({ dir: path.dirname(statePath), envPem: env.AQUA_SEAL_PRIVATE_KEY_PEM });
-  const trustSyntheticFlag = env.AQUA_FIELD_DATA === '1';
+  const publicMode = options.publicMode ?? isPublicModeEnabled(env);
+  // En modo público JAMÁS se aceptan lecturas como datos de campo: todo lo que entre es sintético.
+  const trustSyntheticFlag = !publicMode && env.AQUA_FIELD_DATA === '1';
 
   // ───────────── Seguridad (Fase 2): usuarios, sesiones, auditoría, cupos ─────────────
   // auth.json y audit.jsonl viven FUERA del estado de la red: reset, demo e import no pueden borrarlos.
@@ -179,10 +185,13 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
   const sessionAbsoluteMs = Number(env.AQUA_SESSION_ABSOLUTE_MS) > 0 ? Number(env.AQUA_SESSION_ABSOLUTE_MS) : DEFAULT_ABSOLUTE_MS;
   const authStore = AuthStore.open(options.authPath ?? path.join(authDir, 'auth.json'), { idleMs: sessionIdleMs, absoluteMs: sessionAbsoluteMs, now: options.now, ...options.authStoreOptions });
   const audit = AuditLog.open(options.auditPath ?? path.join(authDir, 'audit.jsonl'), { keys, now: options.now, appendLine: options.auditAppendLine });
-  const limiter = new RateLimiter({ ...parseRateLimitEnv(env.AQUA_RATE_LIMITS), ...options.rateLimits }, options.now);
+  // Una instancia pública detrás de un proxy comparte IP entre muchos visitantes: cupo anónimo más amplio (ajustable con AQUA_RATE_LIMITS).
+  const publicDefaults: Partial<Record<BucketName, Partial<LimitSpec>>> = publicMode ? { 'api-anon': { max: 600, windowMs: 60_000 } } : {};
+  const limiter = new RateLimiter({ ...publicDefaults, ...parseRateLimitEnv(env.AQUA_RATE_LIMITS), ...options.rateLimits }, options.now);
   const opTokens = new OperationTokens(options.now);
-  const setupEnabled = options.setupEnabled ?? (!securityCfg.production || env.AQUA_SETUP_ENABLED === '1');
-  const security: SecurityDeps = { cfg: securityCfg, store: authStore, audit, limiter, opTokens, setupEnabled, sessionMaxAgeSec: Math.floor(sessionAbsoluteMs / 1000) };
+  // El modo público nunca ofrece el asistente de primer administrador: quien explora no debe ver pedir un código de administrador.
+  const setupEnabled = options.setupEnabled ?? (!publicMode && (!securityCfg.production || env.AQUA_SETUP_ENABLED === '1'));
+  const security: SecurityDeps = { cfg: securityCfg, store: authStore, audit, limiter, opTokens, setupEnabled, sessionMaxAgeSec: Math.floor(sessionAbsoluteMs / 1000), publicMode };
   installSecurityPipeline(app, security);
   const setupCode = setupEnabled && !authStore.hasUsers() ? await authStore.issueSetupCode() : null;
 
@@ -275,6 +284,8 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
     state = await createInitialState();
   }
 
+  if (publicMode) assertPublicStateIsSynthetic(state.nodes);
+
   const persistedShape = () => ({
     nodes: state.nodes,
     seriesByNode: state.seriesByNode,
@@ -326,6 +337,7 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
   if (ctx.integrity.status !== 'ok') console.warn(`[integridad] Estado ${ctx.integrity.status}:`, ctx.integrity.issues.slice(0, 5));
 
   const sseClients = new Set<express.Response>();
+  const sseMeta = new Map<express.Response, { userId: string; idHash: string; visitor: boolean }>();
 
   const statePayload = () => ({
     nodes: state.nodes,
@@ -344,9 +356,14 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
   const persistAndBroadcast = (broadcast = false) => {
     persistence.write(persistedShape());
     if (!broadcast || sseClients.size === 0) return;
-    const payload = JSON.stringify(statePayload());
+    const full = statePayload();
+    const fullJson = JSON.stringify(full);
+    let visitorJson: string | null = null;
     for (const client of sseClients) {
       try {
+        // Los visitantes anónimos reciben la versión redactada; los usuarios con sesión, la completa.
+        let payload = fullJson;
+        if (sseMeta.get(client)?.visitor) payload = visitorJson ??= JSON.stringify(redactForVisitor(full));
         client.write(`event: state_update\ndata: ${payload}\n\n`);
       } catch {
         sseClients.delete(client);
@@ -577,7 +594,7 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
 
   const SSE_MAX_TOTAL = 200;
   const SSE_MAX_PER_USER = 5;
-  const sseMeta = new Map<express.Response, { userId: string; idHash: string }>();
+  const SSE_MAX_PER_VISITOR_KEY = 20; // los visitantes se agrupan por IP, que tras un proxy puede ser compartida
   const closeStream = (res: express.Response) => {
     sseClients.delete(res);
     sseMeta.delete(res);
@@ -592,9 +609,10 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
   });
 
   app.get('/api/events', needs('state:read'), (req, res) => {
-    const userId = req.auth!.user.id;
+    const visitor = !req.auth;
+    const userId = req.auth ? req.auth.user.id : `public:${req.clientIp}`;
     const mine = [...sseMeta.values()].filter((m) => m.userId === userId).length;
-    if (sseClients.size >= SSE_MAX_TOTAL || mine >= SSE_MAX_PER_USER) {
+    if (sseClients.size >= SSE_MAX_TOTAL || mine >= (visitor ? SSE_MAX_PER_VISITOR_KEY : SSE_MAX_PER_USER)) {
       req.auditDenied = { reason: 'límite de conexiones de eventos' };
       res.status(429).json({ error: 'Demasiadas conexiones de eventos abiertas.' });
       return;
@@ -605,11 +623,11 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
     res.flushHeaders?.();
     res.write('event: connected\ndata: ' + JSON.stringify({ ok: true }) + '\n\n');
     sseClients.add(res);
-    sseMeta.set(res, { userId, idHash: req.auth!.session.idHash });
+    sseMeta.set(res, { userId, idHash: req.auth?.session.idHash ?? '', visitor });
     const keepAlive = setInterval(() => {
       try {
         // Si la sesión caducó o se revocó (p. ej. por otro proceso), el flujo se cierra.
-        if (!authStore.isSessionValid(req.auth!.session.idHash)) return closeStream(res);
+        if (req.auth && !authStore.isSessionValid(req.auth.session.idHash)) return closeStream(res);
         res.write(': ping\n\n');
       } catch {
         clearInterval(keepAlive);
@@ -626,7 +644,8 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
   // Público: solo "vivo". El detalle (persistencia, integridad, política de seguridad) exige sesión con permiso.
   app.get('/api/health', (req, res) => {
     if (!req.auth || !can(req.auth.user.role, 'health:detail')) {
-      res.json({ ok: true, authRequired: true });
+      // Contrato sin cambios fuera del modo público: solo "vivo" y que se exige sesión.
+      res.json(publicMode ? { ok: true, authRequired: false, publicMode: true } : { ok: true, authRequired: true });
       return;
     }
     res.json({
@@ -650,7 +669,7 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
     });
   });
 
-  app.get('/api/state', needs('state:read'), locked((_req, res) => void res.json(statePayload())));
+  app.get('/api/state', needs('state:read'), locked((req, res) => void res.json(req.publicVisitor ? redactForVisitor(statePayload()) : statePayload())));
 
   app.get('/api/state/consistency', needs('state:read'), locked(async (_req, res) => {
     res.json({ integrity: await computeIntegrity(), issues: auditStateConsistency(state) });
@@ -1616,6 +1635,7 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
       sseClients.clear();
     },
     inspect: () => ({ epoch: ctx.epoch, integrity: ctx.integrity }),
+    publicMode,
     authStore,
     audit,
     setupCode,

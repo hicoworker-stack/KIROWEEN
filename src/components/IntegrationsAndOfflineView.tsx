@@ -54,7 +54,10 @@ export const IntegrationsAndOfflineView: React.FC<IntegrationsAndOfflineViewProp
   const [kiroFiles, setKiroFiles] = useState<KiroFileItem[]>([]);
   const [selectedKiroPath, setSelectedKiroPath] = useState<string | null>(null);
 
+  const mayReadKiro = can(role, 'kiro:read');
   useEffect(() => {
+    // Las especificaciones internas no son públicas: un visitante ni siquiera las solicita.
+    if (!mayReadKiro) return;
     apiFetch('/api/kiro/files')
       .then((r) => r.json())
       .then((data) => {
@@ -64,7 +67,7 @@ export const IntegrationsAndOfflineView: React.FC<IntegrationsAndOfflineViewProp
         }
       })
       .catch(() => {});
-  }, []);
+  }, [mayReadKiro]);
 
   const pendingCount = offlineReports.filter((r) => r.syncStatus === 'pending').length;
   const maySync = can(role, 'offline:sync');
@@ -151,6 +154,7 @@ export const IntegrationsAndOfflineView: React.FC<IntegrationsAndOfflineViewProp
             ))}
           </div>
         </div>
+        {mayReadKiro && (
         <div className="space-y-4 rounded-xl border border-line bg-surface p-5 lg:col-span-7">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
@@ -173,6 +177,7 @@ export const IntegrationsAndOfflineView: React.FC<IntegrationsAndOfflineViewProp
           </div>
           {activeKiro && <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-lg border border-line bg-canvas p-4 font-mono text-xs leading-relaxed text-soft">{activeKiro.content}</pre>}
         </div>
+        )}
       </section>
     </div>
   );

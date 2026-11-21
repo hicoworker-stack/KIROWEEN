@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Portada del video explicativo de Aqua Sentinel">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#06131c"/>
+      <stop offset="0.6" stop-color="#0b2736"/>
+      <stop offset="1" stop-color="#082230"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="0.5" cy="0.46" r="0.42">
+      <stop offset="0" stop-color="#22d3ee" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#22d3ee" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#14384d" stroke-width="1" opacity="0.5"/>
+    </pattern>
+  </defs>
+  <rect width="1280" height="720" fill="url(#bg)"/>
+  <rect width="1280" height="720" fill="url(#grid)"/>
+  <rect width="1280" height="720" fill="url(#halo)"/>
+
+  <!-- red tenue al fondo -->
+  <g fill="none" stroke="#1d6a85" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.55">
+    <path d="M90 560L250 500L420 560L560 520"/>
+    <path d="M720 520L860 560L1020 500L1190 560"/>
+    <path d="M250 500L300 380"/>
+    <path d="M1020 500L980 380"/>
+  </g>
+  <g fill="#06131c" stroke="#1d6a85" stroke-width="2.5" opacity="0.7">
+    <circle cx="90" cy="560" r="9"/><circle cx="250" cy="500" r="9"/><circle cx="420" cy="560" r="9"/><circle cx="560" cy="520" r="9"/>
+    <circle cx="720" cy="520" r="9"/><circle cx="860" cy="560" r="9"/><circle cx="1020" cy="500" r="9"/><circle cx="1190" cy="560" r="9"/>
+    <circle cx="300" cy="380" r="9"/><circle cx="980" cy="380" r="9"/>
+  </g>
+
+  <!-- gota central -->
+  <g transform="translate(640 292)">
+    <circle r="132" fill="none" stroke="#22d3ee" stroke-width="1.5" opacity="0.35"/>
+    <circle r="104" fill="none" stroke="#22d3ee" stroke-width="1.5" opacity="0.55"/>
+    <path d="M0 -70C0 -70 -50 -10 -50 28A50 50 0 0 0 50 28C50 -10 0 -70 0 -70Z" fill="none" stroke="#22d3ee" stroke-width="4"/>
+    <path d="M-19 26A21 21 0 0 0 5 48" fill="none" stroke="#22d3ee" stroke-width="4" stroke-linecap="round" opacity="0.75"/>
+  </g>
+
+  <text x="640" y="508" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="46" font-weight="700" fill="#e6f1f5" letter-spacing="0.5">Aqua Sentinel</text>
+  <text x="640" y="550" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="24" fill="#8fa9b8">Inteligencia para proteger cada gota</text>
+</svg>

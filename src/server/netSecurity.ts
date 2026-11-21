@@ -12,6 +12,7 @@ import type { NextFunction, Request, RequestHandler, Response } from 'express';
  *   AQUA_ALLOWED_HOSTS     lista separada por comas de valores de la cabecera Host (host o host:puerto; host:* acepta cualquier puerto).
  *   AQUA_ALLOWED_ORIGINS   lista de orígenes (https://aqua.ejemplo.org) que pueden enviar peticiones de escritura.
  *   AQUA_TRUSTED_PROXIES   lista de IP de proxys inversos de confianza.
+ *   AQUA_MEDIA_ORIGINS     (opcional) orígenes https desde los que se puede reproducir el video explicativo; por defecto solo el propio servidor.
  * En producción las dos primeras son obligatorias; en desarrollo se aceptan localhost, 127.0.0.1 y [::1].
  */
 
@@ -28,6 +29,8 @@ export interface SecurityConfig {
   /** null = desarrollo: se aceptan orígenes loopback. */
   allowedOrigins: string[] | null;
   trustedProxies: string[];
+  /** Orígenes externos autorizados para <video> (CSP media-src). Vacío: solo el propio servidor. */
+  mediaOrigins: string[];
 }
 
 const LOOPBACK_HOSTS = ['localhost:*', '127.0.0.1:*', '[::1]:*', 'localhost', '127.0.0.1', '[::1]'];
@@ -43,6 +46,16 @@ export function loadSecurityConfig(env: Record<string, string | undefined> = pro
   const hosts = list(env.AQUA_ALLOWED_HOSTS);
   const origins = list(env.AQUA_ALLOWED_ORIGINS);
   const proxies = list(env.AQUA_TRUSTED_PROXIES).map(normalizeIp);
+  const media = list(env.AQUA_MEDIA_ORIGINS);
+  for (const m of media) {
+    let u: URL;
+    try {
+      u = new URL(m);
+    } catch {
+      throw new SecurityConfigError(`AQUA_MEDIA_ORIGINS contiene un origen inválido: "${m}".`);
+    }
+    if (u.protocol !== 'https:' || u.origin !== m.replace(/\/$/, '')) throw new SecurityConfigError(`AQUA_MEDIA_ORIGINS debe contener solo orígenes https (https://host[:puerto]): "${m}".`);
+  }
   for (const h of hosts) if (!/^(\[[0-9a-f:]+\]|[a-z0-9.-]+)(:(\d{1,5}|\*))?$/.test(h)) throw new SecurityConfigError(`AQUA_ALLOWED_HOSTS contiene un valor inválido: "${h}".`);
   for (const o of origins) {
     let u: URL;
@@ -64,6 +77,7 @@ export function loadSecurityConfig(env: Record<string, string | undefined> = pro
     allowedHosts: hosts.length ? hosts : LOOPBACK_HOSTS,
     allowedOrigins: origins.length ? origins.map((o) => o.replace(/\/$/, '')) : production ? [] : null,
     trustedProxies: proxies,
+    mediaOrigins: media.map((m) => m.replace(/\/$/, '')),
   };
 }
 
@@ -137,6 +151,7 @@ export function cspFor(cfg: SecurityConfig): string {
     "form-action 'self'",
     "img-src 'self' data: blob:",
     "font-src 'self' data: https://fonts.gstatic.com",
+    `media-src 'self'${(cfg.mediaOrigins ?? []).map((o) => ' ' + o).join('')}`,
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   ];
   if (cfg.production) return [...base, "script-src 'self'", "connect-src 'self'"].join('; ');

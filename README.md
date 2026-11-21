@@ -29,9 +29,61 @@ npm start            # producción (tras build)
 Requiere Node >= 22.
 
 
+## Modo público
+
+Pensado para presentar Aqua Sentinel: cualquiera abre la URL y explora la plataforma **sin iniciar sesión, sin registrarse y sin código de administrador**. No es una versión sin seguridad: es un modo explícito, de solo lectura y reversible.
+
+```bash
+npm run public        # equivale a AQUA_PUBLIC_MODE=1 npm run dev, con el estado aislado en data/public-demo/
+```
+
+Al arrancar por primera vez se siembra solo una demostración con datos **simulados**: un incidente (fuga en la troncal), su diagnóstico, una foto de ejemplo y una orden de trabajo en curso. El visitante navega por Inicio, Mapa, Incidentes y Órdenes de trabajo, y puede abrir las herramientas avanzadas. No puede modificar nada.
+
+### Qué rutas son públicas
+
+Un visitante sin sesión solo supera estas rutas. Todas son de lectura (`GET`):
+
+| Ruta | Para qué | Notas |
+| --- | --- | --- |
+| `/api/state` | Estado de la demostración | Versión redactada: sin rutas del servidor ni mensajes internos |
+| `/api/events` | Actualizaciones en vivo | Mismo contenido redactado; máximo 20 conexiones por IP |
+| `/api/evidence/:sha256` | Fotos de la demostración | Solo con un SHA-256 exacto de 64 caracteres hexadecimales |
+
+Siguen siendo públicas, como siempre, las rutas de acceso: `GET /api/health` (solo «vivo»), `GET /api/seal/public-key`, `GET /api/auth/status`, `GET /api/auth/csrf`, `POST /api/auth/login` y `POST /api/auth/setup` (esta última deshabilitada en modo público).
+
+### Qué sigue protegido
+
+**Todo lo demás exige sesión, CSRF y el permiso del rol**, igual que antes: toda escritura (`POST`, `PATCH`, `PUT`, `DELETE`), la IA, la ingesta de telemetría, las órdenes, los expedientes, la exportación e importación de snapshots, el reinicio y la demostración guiada (que además piden contraseña y token de un solo uso), los usuarios, la auditoría y `/api/kiro/files`. Una prueba recorre **todas** las rutas registradas y falla si alguna distinta de las anteriores responde a un visitante.
+
+El visitante no es un usuario: no existe en `auth.json`, no tiene sesión y su único rol, `VISITOR`, solo concede `state:read` y `evidence:read` (`src/core/permissions.ts`). Nunca se le trata como operador ni como administrador.
+
+### Aislamiento de los datos
+
+- La instancia pública usa su propio estado en `data/public-demo/` (no toca `data/aqua-sentinel-state.json`). Se niega a arrancar si el estado contiene lecturas que no sean sintéticas.
+- En modo público `AQUA_FIELD_DATA` se ignora: toda lectura que llegue se marca como simulada.
+- La demostración se siembra con la API real y una cuenta interna `demo.seed` (rol OPERATOR, contraseña aleatoria que nunca se guarda, desactivada al terminar). Aparece en el registro como «Preparación de la demostración».
+- Los tiempos de una demostración envejecen. Si el estado tiene más de 12 h al arrancar se descarta **solo ese archivo** y se vuelve a sembrar (usuarios, auditoría y clave de sellado no se tocan). `AQUA_PUBLIC_KEEP_STATE=1` lo desactiva.
+- Si se inicia sesión en una instancia pública, lo que haga ese usuario queda en la demostración y es visible para los visitantes, nombres incluidos. Usa cuentas de demostración, no personales.
+
+### Activarlo y desactivarlo
+
+| Variable | Efecto |
+| --- | --- |
+| `AQUA_PUBLIC_MODE=1` (o `--public`) | Activa el modo público. Sin ella, toda ruta exige sesión. |
+| `AQUA_PUBLIC_KEEP_STATE=1` | No descartar la demostración con más de 12 h. |
+| `AQUA_MEDIA_ORIGINS` | Orígenes https autorizados para reproducir un video alojado fuera (por defecto, solo este servidor). |
+
+Para volver al modo privado basta con arrancar sin la variable. Para operar con usuarios en la instancia pública, créalos con `npm run auth -- create-admin <usuario> --public` y usa «Iniciar sesión» en el menú.
+
+En un despliegue (`NODE_ENV=production`) siguen siendo obligatorios `AQUA_ALLOWED_HOSTS` y `AQUA_ALLOWED_ORIGINS`. Detrás de un proxy define `AQUA_TRUSTED_PROXIES`: si no, todos los visitantes comparten una IP y el cupo anónimo (600 peticiones por minuto en modo público, ajustable con `AQUA_RATE_LIMITS`) se agota para todos.
+
+### Video explicativo
+
+La pantalla de Inicio muestra, dentro del encabezado, un reproductor 16:9 con portada. El video incluido (`public/videos/aqua-sentinel-explicativo.mp4`, 16,5 s, sin audio) es una **animación ilustrativa generada por código con datos simulados**, no un video institucional con locución ni imágenes de campo. Si el archivo no existe o `enabled` es false, muestra «Video explicativo próximamente» y no simula ninguna reproducción. Para reemplazarlo copia el archivo a `public/videos/aqua-sentinel-explicativo.mp4` y ajusta `public/config/intro-video.json` (ahí también se cambian la ruta, la portada y los subtítulos). Más detalles en `public/videos/LEEME.txt`. La reproducción es siempre bajo demanda, sin autoplay.
+
 ## Interfaz
 
-Cuatro apartados: **Inicio** (estado de la red y qué hacer ahora), **Mapa**, **Incidentes** (qué pasa, qué significa y qué hacer) y **Órdenes de trabajo**. Las herramientas técnicas (series de sensores, evidencia visual, Trust Ledger, conexión e integraciones, demostración) están en **Herramientas avanzadas**, desde el menú de usuario.
+Cuatro apartados, en un menú desplegable: **Inicio** (presentación con video, estado de la red y qué hacer ahora), **Mapa**, **Incidentes** (qué pasa, qué significa y qué hacer) y **Órdenes de trabajo**. Las herramientas técnicas (series de sensores, evidencia visual, Trust Ledger, conexión e integraciones, demostración) están en **Herramientas avanzadas**, desde el menú de usuario.
 
 Cada dato indica su procedencia: **MEDIDO** (sensor), **DECLARADO** (una persona), **INFERIDO** (reglas y cálculos, sin IA), **HIPÓTESIS IA** (modelo generativo) y **SIMULADO** (dato sintético de demostración). Una hipótesis nunca se presenta como hecho. La interfaz respeta el rol (Lector, Operador, Administrador) usando la misma matriz de permisos que el servidor (`src/core/permissions.ts`), pero la autorización real siempre es la del servidor.
 
@@ -72,6 +124,7 @@ En desarrollo, si no hay usuarios, el servidor imprime un código de UN solo uso
 | `AQUA_ALLOWED_HOSTS` | **Obligatoria en producción.** Valores permitidos de la cabecera `Host` (`host`, `host:puerto` o `host:*`). Evita DNS rebinding. En desarrollo se aceptan `localhost`, `127.0.0.1` y `[::1]`. |
 | `AQUA_ALLOWED_ORIGINS` | **Obligatoria en producción.** Orígenes (`https://aqua.ejemplo.org`) que pueden enviar escrituras. |
 | `AQUA_TRUSTED_PROXIES` | IP de proxys inversos de confianza. Solo entonces se leen `X-Forwarded-For` y `X-Forwarded-Proto`; `X-Forwarded-Host` nunca se usa (el proxy debe conservar `Host`). |
+| `AQUA_PUBLIC_MODE=1` | Modo público de solo lectura y datos simulados (ver «Modo público»). |
 | `AQUA_SETUP_ENABLED=1` | Habilita el asistente web del primer administrador en producción (se prefiere el CLI). |
 | `AQUA_SESSION_IDLE_MS` / `AQUA_SESSION_ABSOLUTE_MS` | Caducidad por inactividad (30 min) y absoluta (12 h). |
 | `AQUA_RATE_LIMITS` | JSON para ajustar cupos por cubeta (`login-ip`, `login-user`, `setup`, `api-anon`, `api-user`, `ai`, `ai-probe`, `upload`, `admin`, `reauth`), p. ej. `{"ai":{"max":10,"windowMs":60000}}`. |

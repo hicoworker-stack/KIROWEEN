@@ -6,9 +6,11 @@ import { ChainVerificationResult, TrustLedgerEntry } from '../core/types';
 
 interface TrustLedgerViewProps {
   ledger: TrustLedgerEntry[];
+  /** Falso para el visitante del modo público: la comprobación en el servidor exige sesión, así que ni se intenta. */
+  serverVerify?: boolean;
 }
 
-export const TrustLedgerView: React.FC<TrustLedgerViewProps> = ({ ledger }) => {
+export const TrustLedgerView: React.FC<TrustLedgerViewProps> = ({ ledger, serverVerify = true }) => {
   const [clientVerification, setClientVerification] = useState<ChainVerificationResult | null>(null);
   const [serverVerification, setServerVerification] = useState<ChainVerificationResult | null>(null);
   const [serverVerifyError, setServerVerifyError] = useState<string | null>(null);
@@ -24,12 +26,12 @@ export const TrustLedgerView: React.FC<TrustLedgerViewProps> = ({ ledger }) => {
     try {
       const [clientSettled, serverSettled] = await Promise.allSettled([
         verifyLedgerChain(chainToTest),
-        apiFetch('/api/ledger/verify', {
+        (serverVerify ? apiFetch('/api/ledger/verify', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ledger: chainToTest }),
-        }).then(async (res) => {
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        }) : Promise.reject(new Error('La comprobación en el servidor requiere iniciar sesión. La verificación local sí se hizo.'))).then(async (res) => {
+          if (!res.ok) throw new Error(res.status === 401 ? 'La comprobación en el servidor requiere iniciar sesión. La verificación local sí se hizo.' : `HTTP ${res.status}`);
           return (await res.json()) as ChainVerificationResult;
         }),
       ]);

@@ -3,12 +3,14 @@
  *  - El servidor la aplica en cada ruta (src/server/authz.ts).
  *  - La interfaz solo la consulta para mostrar u ocultar acciones: ocultar un botón NUNCA sustituye la autorización del servidor.
  *
+ *  - VISITOR:  visitante anónimo del MODO PÚBLICO (AQUA_PUBLIC_MODE). Solo lectura del estado y de las fotos de la instancia de demostración.
+ *              No es un usuario: no existe en auth.json y el servidor solo lo concede en tres rutas GET (ver src/server/publicMode.ts).
  *  - VIEWER:   consulta (estado, ledger, evidencias, verificación de expedientes).
  *  - OPERATOR: además ingesta, escenarios, IA, decisiones, órdenes, evidencias, exportar expedientes y sincronizar.
  *  - ADMIN:    además usuarios, auditoría, snapshot, sonda de IA y operaciones destructivas.
  */
 
-export type Role = 'ADMIN' | 'OPERATOR' | 'VIEWER';
+export type Role = 'ADMIN' | 'OPERATOR' | 'VIEWER' | 'VISITOR';
 
 export const PERMISSIONS = [
   'state:read',
@@ -53,7 +55,10 @@ const OPERATOR: readonly Permission[] = [
 ];
 const ADMIN: readonly Permission[] = [...OPERATOR, 'ai:probe', 'snapshot:export', 'destructive:reset', 'destructive:demo', 'destructive:import', 'destructive:token', 'users:manage', 'audit:read'];
 
+const VISITOR: readonly Permission[] = ['state:read', 'evidence:read'];
+
 export const ROLE_PERMISSIONS: Readonly<Record<Role, ReadonlySet<Permission>>> = {
+  VISITOR: new Set(VISITOR),
   VIEWER: new Set(VIEWER),
   OPERATOR: new Set(OPERATOR),
   ADMIN: new Set(ADMIN),
@@ -63,4 +68,4 @@ export function can(role: Role | null | undefined, permission: Permission): bool
   return Boolean(role && ROLE_PERMISSIONS[role]?.has(permission));
 }
 
-export const ROLE_LABEL: Record<Role, string> = { ADMIN: 'Administrador', OPERATOR: 'Operador', VIEWER: 'Lector' };
+export const ROLE_LABEL: Record<Role, string> = { ADMIN: 'Administrador', OPERATOR: 'Operador', VIEWER: 'Lector', VISITOR: 'Visitante' };

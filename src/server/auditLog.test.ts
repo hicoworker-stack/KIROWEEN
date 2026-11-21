@@ -92,12 +92,12 @@ test('auditoría: no registra contraseñas, tokens ni secretos aunque lleguen en
   const log = AuditLog.open(file, { keys: makeKeys() });
   await log.record(
     ev('auth.login', {
-      meta: { password: 'Clave-Secreta-1!', newPassword: 'x', sessionToken: 'abc', apiKey: 'AIza...', csrfToken: 'c', operationToken: 't', authorization: 'Bearer z', cookie: 'sid=1', setupCode: 'AAAA', operation: 'reset', count: 3, ok: true, 'mala clave': 'x', nested: { a: 1 } },
+      meta: { password: 'Clave-Secreta-1!', newPassword: 'x', sessionToken: 'tok-secreto-zq9', apiKey: 'AIza...', csrfToken: 'c', operationToken: 't', authorization: 'Bearer z', cookie: 'sid=1', setupCode: 'setup-zq9-codigo', operation: 'reset', count: 3, ok: true, 'mala clave': 'x', nested: { a: 1 } },
       reason: 'fallo',
     })
   );
   const raw = fs.readFileSync(file, 'utf8');
-  for (const secret of ['Clave-Secreta-1!', 'AIza', 'Bearer', 'sid=1', 'AAAA', 'abc']) assert.ok(!raw.includes(secret), `no debe aparecer ${secret}`);
+  for (const secret of ['Clave-Secreta-1!', 'AIza', 'Bearer', 'sid=1', 'setup-zq9-codigo', 'tok-secreto-zq9']) assert.ok(!raw.includes(secret), `no debe aparecer ${secret}`);
   const meta = JSON.parse(raw.trim()).meta;
   assert.deepEqual(meta, { operation: 'reset', count: 3, ok: true });
   assert.equal(String(sanitizeMeta({ a: 'x'.repeat(500) })!.a).length, 200);

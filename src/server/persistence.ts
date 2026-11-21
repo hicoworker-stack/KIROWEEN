@@ -1,3 +1,4 @@
+import { isPublicModeEnabled } from './publicMode';
 import fs from 'fs';
 import path from 'path';
 import {
@@ -32,9 +33,11 @@ export interface PersistedServerState {
 
 export const STATE_FORMAT_VERSION = 2;
 
+/** Ruta del estado de la instancia PÚBLICA: separada del estado operativo (data/aqua-sentinel-state.json). */
+export const PUBLIC_DEMO_STATE_RELATIVE = 'data/public-demo/aqua-sentinel-state.json';
 export const DEFAULT_STATE_PATH = path.resolve(
   process.cwd(),
-  process.env.AQUA_STATE_PATH || 'data/aqua-sentinel-state.json'
+  process.env.AQUA_STATE_PATH || (isPublicModeEnabled() ? PUBLIC_DEMO_STATE_RELATIVE : 'data/aqua-sentinel-state.json')
 );
 
 /**

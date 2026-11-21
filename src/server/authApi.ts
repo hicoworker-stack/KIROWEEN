@@ -8,6 +8,7 @@ import { HttpError } from './http';
 import { clientIpOf, hostGuard, originGuard, SecurityConfig, securityHeaders, useSecureCookie } from './netSecurity';
 import { DESTRUCTIVE_OPERATIONS, DestructiveOperation, OperationTokens } from './operationTokens';
 import { burnPasswordTime, verifyPassword } from './passwords';
+import { isPublicReadRoute } from './publicMode';
 import { BucketName, HitResult, RateLimiter } from './rateLimit';
 
 /**
@@ -29,6 +30,8 @@ export interface SecurityDeps {
   sessionMaxAgeSec: number;
   /** Secreto del proceso para los tokens CSRF previos a la sesión (se regenera en cada arranque). */
   processSecret?: Buffer;
+  /** MODO PÚBLICO (AQUA_PUBLIC_MODE): admite visitantes anónimos solo en las rutas GET de publicMode.ts. */
+  publicMode?: boolean;
 }
 
 const UNSAFE = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -175,7 +178,9 @@ export function installSecurityPipeline(app: Express, deps: SecurityDeps): void 
       return tooMany(res, r);
     }
     const pathOnly = req.originalUrl.split('?')[0];
-    if (!req.auth && !isPublicRoute(req.method === 'HEAD' ? 'GET' : req.method, pathOnly)) {
+    // MODO PÚBLICO: lista cerrada de rutas GET de solo lectura. Si hay una cookie de sesión inválida se trata igual que sin sesión.
+    if (!req.auth && deps.publicMode && isPublicReadRoute(req.method, pathOnly)) req.publicVisitor = true;
+    if (!req.auth && !req.publicVisitor && !isPublicRoute(req.method === 'HEAD' ? 'GET' : req.method, pathOnly)) {
       req.auditDenied = { reason: token ? 'sesión inválida, caducada o revocada' : 'sin sesión' };
       if (token) res.append('Set-Cookie', `${sidName(secure)}=; Path=/; HttpOnly; SameSite=Strict${secure ? '; Secure' : ''}; Max-Age=0`);
       res.status(401).json({ error: 'Autenticación requerida.', code: 'unauthenticated' });
@@ -247,6 +252,7 @@ export function installSecurityPipeline(app: Express, deps: SecurityDeps): void 
       authenticated: Boolean(req.auth),
       user: req.auth ? userView(req.auth.user) : null,
       csrfToken: req.auth ? req.auth.csrf : pre!.token,
+      publicMode: Boolean(deps.publicMode),
       setupAvailable: deps.setupEnabled && store.setupAvailable(),
       needsAdmin: !store.hasUsers(),
     });

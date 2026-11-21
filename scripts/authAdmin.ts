@@ -1,3 +1,4 @@
+import '../src/server/cliFlags';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
@@ -19,6 +20,8 @@ import { loadOrCreateSealKeys } from '../src/server/sealing';
  *   npm run auth -- disable <usuario>     |  enable <usuario>
  *   npm run auth -- revoke-sessions <usuario>
  *   npm run auth -- list
+ *
+ * Para la instancia PÚBLICA de demostración (estado separado en data/public-demo/) añade --public: npm run auth -- create-admin <usuario> --public
  *
  * La contraseña NUNCA se pasa por argumentos (quedaría en el historial y en la lista de procesos): se pide por
  * terminal sin eco o, para automatización, se lee de la entrada estándar con --password-stdin.

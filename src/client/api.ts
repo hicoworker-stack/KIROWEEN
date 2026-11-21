@@ -5,7 +5,8 @@
  *  - Una respuesta 401 de la API cierra la sesión local y vuelve a mostrar el inicio de sesión.
  */
 
-export type Role = 'ADMIN' | 'OPERATOR' | 'VIEWER';
+import type { Role } from '../core/permissions';
+export type { Role };
 export interface SessionUser {
   id: string;
   username: string;
@@ -18,6 +19,8 @@ export interface AuthStatus {
   csrfToken: string;
   setupAvailable: boolean;
   needsAdmin: boolean;
+  /** MODO PÚBLICO: el servidor admite visitantes anónimos de solo lectura. */
+  publicMode?: boolean;
 }
 
 let csrfToken = '';

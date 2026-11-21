@@ -7,6 +7,8 @@ declare global {
     interface Request {
       /** Identidad autenticada resuelta desde la cookie de sesión (nunca desde el cuerpo ni cabeceras del cliente). */
       auth?: { user: UserRecord; session: SessionRecord; csrf: string };
+      /** Visitante anónimo admitido por el MODO PÚBLICO en una ruta de solo lectura de la lista cerrada. Nunca implica sesión. */
+      publicVisitor?: boolean;
       /** IP del cliente: la del socket, o la que declara un proxy configurado explícitamente como de confianza. */
       clientIp: string;
       requestId: string;

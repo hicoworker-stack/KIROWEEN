@@ -142,7 +142,7 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = (p) => {
                     <p className="text-sm text-quiet">
                       {o.id} · {o.assetName} · actualizada {timeAgo(o.updatedAt)}
                     </p>
-                    <button type="button" onClick={() => p.onOpenIncident(o.anomalyId)} className="cursor-pointer text-sm text-accent underline">
+                    <button type="button" onClick={() => p.onOpenIncident(o.anomalyId)} className="-ml-1 inline-flex min-h-11 cursor-pointer items-center px-1 text-sm text-accent underline">
                       Ver el incidente que originó esta orden
                     </button>
                   </div>

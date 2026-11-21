@@ -9,6 +9,8 @@ import { HomeView, HomeViewProps } from '../components/HomeView';
 import { IncidentsView, IncidentsViewProps } from '../components/IncidentsView';
 import { MapView } from '../components/MapView';
 import { WorkOrdersView, WorkOrdersViewProps } from '../components/WorkOrdersView';
+import { HowItWorks, IntroVideo } from '../components/IntroSection';
+import { parseVideoConfig } from './introVideo';
 import { anomaly, diag, node, order, reading } from './fixtures';
 
 /**
@@ -171,17 +173,141 @@ test('REQ-UX-05: la demostración y los reinicios solo se activan para quien tie
   assert.match(text(html(<DemoPanel {...props} role="ADMIN" />)), /Todo lo de aquí es simulado/);
 });
 
-test('REQ-UX-04: la navegación principal tiene exactamente cuatro apartados, versión de escritorio y móvil, con salto al contenido', () => {
-  const h = html(
-    <AppShell view="home" user={{ id: 'u', username: 'ana', displayName: 'Ana', role: 'OPERATOR' }} connection={{ online: true, simulatedOffline: false, pendingReports: 0, syncing: false, lastUpdatedAt: Date.now() }} allSynthetic badges={{ incidents: 2 }} onNavigate={noop} onLogout={noop}>
+const shell = (over: Partial<React.ComponentProps<typeof AppShell>> = {}) =>
+  html(
+    <AppShell view="home" user={{ id: 'u', username: 'ana', displayName: 'Ana', role: 'OPERATOR' }} connection={{ online: true, simulatedOffline: false, pendingReports: 0, syncing: false, lastUpdatedAt: Date.now() }} allSynthetic badges={{ incidents: 2 }} onNavigate={noop} onLogout={noop} {...over}>
       <p>contenido</p>
     </AppShell>
   );
-  assert.match(h, /href="#main"/);
-  for (const label of ['Inicio', 'Mapa', 'Incidentes', 'Órdenes']) assert.equal((h.match(new RegExp(`<span>${label}</span>`, 'g')) ?? []).length, 2, `${label} en escritorio y móvil`);
-  assert.equal((h.match(/aria-current="page"/g) ?? []).length, 2);
-  assert.doesNotMatch(text(h), /Trust Ledger|Sensores IoT|Aqua Brain|Command Center/, 'los términos técnicos no están en la navegación principal');
-  assert.match(h, /SIMULADO/);
+
+test('REQ-UX-04/REQ-PUB-04: el menú es un único desplegable compacto, cerrado de inicio, accesible y sin barras de navegación duplicadas', () => {
+  const closed = shell();
+  assert.match(closed, /href="#main"/, 'salto al contenido');
+  assert.match(closed, /aria-haspopup="menu"/);
+  assert.match(closed, /aria-expanded="false"/);
+  assert.match(closed, /aria-label="Menú de navegación\. Estás en Inicio"/);
+  assert.doesNotMatch(closed, /role="menuitem"/, 'cerrado: no hay opciones a la vista');
+  assert.doesNotMatch(closed, /<nav/, 'sin barra superior ni inferior duplicada');
+  assert.equal((closed.match(/<button[^>]*aria-haspopup/g) ?? []).length, 1, 'un solo botón de menú');
+  assert.match(closed, /SIMULADO/);
+  assert.doesNotMatch(text(closed), /Trust Ledger|Sensores IoT|Aqua Brain|Command Center/, 'sin términos técnicos en la cabecera');
+});
+
+test('REQ-UX-04/REQ-PUB-04: abierto, el menú ofrece los cuatro apartados, las herramientas avanzadas y la sesión, marcando dónde estás', () => {
+  const open = shell({ initialMenuOpen: true, view: 'incidents' });
+  assert.match(open, /aria-expanded="true"/);
+  assert.match(open, /role="menu"/);
+  const items = (open.match(/role="menuitem"/g) ?? []).length;
+  assert.equal(items, 6, 'cuatro apartados + herramientas avanzadas + cerrar sesión');
+  const t = text(open);
+  for (const label of ['Inicio', 'Mapa', 'Incidentes', 'Órdenes de trabajo', 'Herramientas avanzadas', 'Cerrar sesión']) assert.match(t, new RegExp(label));
+  assert.equal((open.match(/aria-current="page"/g) ?? []).length, 1);
+  assert.match(open, /aria-current="page"[^>]*>[\s\S]*?Incidentes/);
+  assert.match(open, /aria-label="2 pendientes"/);
+  assert.match(t, /@ana · Operador/);
+  assert.match(shell({ view: 'advanced' }), /Estás en Herramientas avanzadas/);
+});
+
+test('REQ-PUB-04: el visitante del modo público ve el aviso de solo lectura y «Iniciar sesión» en el menú, nunca «Cerrar sesión»', () => {
+  const v = shell({ user: { id: 'public-visitor', username: 'visitante', displayName: 'Visitante', role: 'VISITOR' }, initialMenuOpen: true });
+  const t = text(v);
+  assert.match(t, /Modo público de demostración/);
+  assert.match(t, /Datos simulados y solo lectura/);
+  assert.match(t, /Iniciar sesión para actuar/);
+  assert.match(t, /Modo público · solo lectura/);
+  assert.equal((v.match(/Iniciar sesión/g) ?? []).length >= 2, true);
+  assert.doesNotMatch(t, /Cerrar sesión/);
+  assert.match(v, /role="note"/);
+  assert.doesNotMatch(shell(), /role="note"/, 'un usuario con sesión no ve el aviso público');
+});
+
+test('REQ-PUB-04: el visitante ve la presentación del producto arriba (título, video, cómo funciona, acceso) y el estado de la red debajo', () => {
+  const h = html(<HomeView {...homeProps({ role: 'VISITOR' })} />);
+  const t = text(h);
+  assert.equal((h.match(/<h1/g) ?? []).length, 1, 'una sola h1 en la página');
+  assert.match(h, /<h1[^>]*id="hero-title"/);
+  assert.match(t, /Inteligencia para proteger cada gota\./);
+  assert.match(t, /Detectamos anomalías, analizamos infraestructuras de agua y transformamos información en acciones verificables\./);
+  assert.match(h, /aspect-video/, 'contenedor 16:9');
+  assert.match(h, /src="\/images\/video-poster\.svg"/, 'portada antes de reproducir');
+  assert.match(h, /alt="Portada del video explicativo/);
+  const order = ['hero-title', 'aspect-video', 'how-title', 'explore-title', 'Estado de la red ahora', 'home-status'].map((k) => h.indexOf(k));
+  assert.ok(order.every((n) => n > 0) && order.every((n, i) => i === 0 || n > order[i - 1]), `orden de las secciones: ${order.join(',')}`);
+  assert.match(t, /Empezar a explorar/);
+  assert.match(t, /No necesitas cuenta/);
+  assert.match(t, /Todo lo que ves es simulado/);
+  assert.doesNotMatch(t, /Reportar un problema|Ver una demostración/, 'el visitante no recibe acciones que no puede usar');
+});
+
+test('REQ-PUB-04: «Cómo funciona» muestra el flujo CAPTURA → DETECCIÓN → ANÁLISIS → ACCIÓN → VERIFICACIÓN con un boceto por paso', () => {
+  const h = html(<HowItWorks />);
+  const t = text(h);
+  const labels = ['CAPTURA', 'DETECCIÓN', 'ANÁLISIS', 'ACCIÓN', 'VERIFICACIÓN'];
+  const pos = labels.map((l) => t.indexOf(l));
+  assert.ok(pos.every((n, i) => n >= 0 && (i === 0 || n > pos[i - 1])), 'en orden');
+  assert.equal((h.match(/<svg/g) ?? []).length >= 5, true, 'un boceto por paso');
+  assert.equal((h.match(/role="img" aria-label="Boceto:/g) ?? []).length, 5, 'cada boceto tiene texto alternativo');
+  assert.doesNotMatch(t, /garantiza|100 ?%|infalible/i, 'sin promesas que el sistema no puede cumplir');
+});
+
+test('REQ-PUB-04: un usuario con sesión conserva su vista operativa, y la presentación queda plegada al final', () => {
+  const h = html(<HomeView {...homeProps()} />);
+  assert.match(h, /<h1[^>]*id="home-status"/, 'su h1 es el estado de la red');
+  assert.doesNotMatch(h, /id="hero-title"/);
+  assert.doesNotMatch(text(h), /Empezar a explorar|Estado de la red ahora/);
+  assert.match(text(h), /Qué es Aqua Sentinel y cómo funciona \(video explicativo\)/);
+  assert.ok(h.indexOf('<details') > h.indexOf('home-zones'), 'después del estado por zona');
+});
+
+test('REQ-PUB-03: sin video publicado, la portada muestra «Video explicativo próximamente» y el botón de reproducir está desactivado (no se simula nada)', () => {
+  const h = html(<IntroVideo forceState="soon" />);
+  assert.match(text(h), /Video explicativo próximamente/);
+  assert.doesNotMatch(h, /<video/, 'no existe ningún reproductor que simular');
+  assert.match(h, /<button[^>]*disabled=""[^>]*aria-label="Reproducir el video explicativo \(todavía no disponible\)"|<button[^>]*aria-label="Reproducir el video explicativo \(todavía no disponible\)"[^>]*disabled=""/);
+  assert.match(h, /<img[^>]*src="\/images\/video-poster\.svg"/);
+  assert.match(h, /aspect-video/);
+});
+
+test('REQ-PUB-03: con video publicado se reproduce solo bajo demanda: sin autoplay, sin precarga, con portada y botón accesible', () => {
+  const cfg = parseVideoConfig({ src: '/videos/aqua-sentinel-explicativo.mp4', captions: '/videos/es.vtt', title: 'Aqua Sentinel' });
+  const h = html(<IntroVideo forceState="ready" forceConfig={cfg} />);
+  assert.match(h, /<video/);
+  assert.match(h, /src="\/videos\/aqua-sentinel-explicativo\.mp4"/);
+  assert.match(h, /poster="\/images\/video-poster\.svg"/);
+  assert.match(h, /preload="none"/);
+  assert.match(h, /playsinline/i);
+  assert.doesNotMatch(h, /autoplay/i, 'nunca se reproduce solo');
+  assert.doesNotMatch(h, /<video[^>]*\scontrols/, 'los controles aparecen al empezar, no antes');
+  assert.doesNotMatch(h, /muted/i);
+  assert.match(h, /<button[^>]*aria-label="Reproducir el video explicativo"/);
+  assert.doesNotMatch(h, /Video explicativo próximamente/);
+  assert.match(h, /<track[^>]*kind="captions"[^>]*src="\/videos\/es\.vtt"|<track[^>]*src="\/videos\/es\.vtt"[^>]*kind="captions"/);
+  assert.match(h, /aria-label="Aqua Sentinel"/);
+});
+
+test('REQ-PUB-03: si el video no carga, se avisa y se vuelve a la portada', () => {
+  const h = html(<IntroVideo forceState="unavailable" />);
+  assert.match(text(h), /No se pudo cargar el video/);
+  assert.doesNotMatch(h, /<video/);
+});
+
+test('REQ-PUB-01: el visitante consulta Incidentes y Órdenes sin recibir ninguna acción de escritura', () => {
+  const d = diag({ primaryHypothesis: 'x', potentialImpact: 'y', recommendedAction: 'Reparar la brida', uncertaintyStatement: 'z', missingData: [], alternativeHypotheses: [] } as never);
+  const inc = text(html(<IncidentsView {...incidentProps({ diagnoses: [d], role: 'VISITOR' })} />));
+  assert.match(inc, /Tu rol \(Visitante\) permite consultar, no decidir/);
+  assert.doesNotMatch(inc, /Aceptar y crear la orden|Pedir el diagnóstico|Añadir una foto|Reportar un problema|Cambiar la recomendación|No aplicar/);
+  const open = order({ status: 'En Progreso', checklist: [{ id: 'c1', label: 'Aislar el tramo', done: false }], closureEvidence: closedOrder.closureEvidence, requiredResources: [], probableCause: 'Brida', assetName: 'Tubo' });
+  const ordHtml = html(<WorkOrdersView {...ordersProps({ workOrders: [open], role: 'VISITOR' })} />);
+  assert.match(text(ordHtml), /permite consultar la orden, no modificarla/);
+  assert.doesNotMatch(text(ordHtml), /Cerrar la orden|Empezar la intervención|Tomar o añadir la foto|Cambiar la foto|Cambiar/);
+  assert.match(ordHtml, /type="checkbox"[^>]*disabled/);
+});
+
+test('REQ-PUB-04: las herramientas avanzadas del visitante omiten la pestaña de demostración, que no tendría ninguna acción disponible', () => {
+  const visitor = text(html(<AdvancedView tab="sensores" onTab={noop} role="VISITOR"><p>x</p></AdvancedView>));
+  assert.doesNotMatch(visitor, /Demostración/);
+  for (const label of ['Sensores y series', 'Evidencia visual', 'Registro verificable', 'Conexión e integraciones']) assert.match(visitor, new RegExp(label));
+  assert.match(text(html(<AdvancedView tab="sensores" onTab={noop} role="ADMIN"><p>x</p></AdvancedView>)), /Demostración/);
 });
 
 test('REQ-UX-04: Avanzado agrupa las herramientas técnicas sin eliminarlas', () => {
