@@ -21,7 +21,8 @@ import { AnomalyEvent, EvidenceLevel, VisionAnalysisResult } from './types';
 export type ChannelVerdict = 'supports' | 'contradicts' | 'neutral' | 'missing';
 
 export interface ConcordanceChannel {
-  channel: 'sensores' | 'hidráulica' | 'fotografía';
+  /** "reporte" es un reporte de campo DECLARADO por una persona: nunca se cuenta como "sensores" (corrección de F1). */
+  channel: 'sensores' | 'reporte' | 'hidráulica' | 'fotografía';
   verdict: ChannelVerdict;
   detail: string;
 }
@@ -44,18 +45,21 @@ export interface HydraulicEvidence {
 }
 
 export function evaluateConcordance(input: {
-  anomaly: Pick<AnomalyEvent, 'category' | 'rulesTriggered'>;
+  anomaly: Pick<AnomalyEvent, 'category' | 'rulesTriggered'> & Partial<Pick<AnomalyEvent, 'origin'>>;
   vision?: VisionAnalysisResult | null;
   hydraulic?: HydraulicEvidence | null;
 }): ConcordanceReport {
   const { anomaly, vision, hydraulic } = input;
   const channels: ConcordanceChannel[] = [];
+  const declared = anomaly.origin === 'offline-report';
 
-  channels.push({
-    channel: 'sensores',
-    verdict: 'supports',
-    detail: `${anomaly.rulesTriggered.length} regla(s) determinista(s) respaldan "${anomaly.category}".`,
-  });
+  // F1 corregido: el canal de origen de un reporte de campo es la palabra de una persona, no una lectura de sensor.
+  channels.push(
+    declared
+      ? { channel: 'reporte', verdict: 'supports', detail: `Una persona reportó "${anomaly.category}" en campo. Es un dato declarado: ningún sensor lo confirma.` }
+      : { channel: 'sensores', verdict: 'supports', detail: `${anomaly.rulesTriggered.length} regla(s) determinista(s) respaldan "${anomaly.category}".` },
+  );
+  const origin = declared ? 'el reporte declarado' : 'los sensores';
 
   // Hidráulica: solo aplica a la hipótesis de fuga.
   if (anomaly.category !== 'leak') {
@@ -124,13 +128,15 @@ export function evaluateConcordance(input: {
     statement = 'Un canal analizado contradice la hipótesis: resolver la contradicción en campo antes de actuar.';
   } else if (extra === 2) {
     level = 'alta';
-    statement = 'El balance hidráulico y la fotografía analizada coinciden con los sensores.';
+    statement = `El balance hidráulico y la fotografía analizada coinciden con ${origin}.`;
   } else if (extra === 1) {
     level = 'media';
-    statement = 'Un canal adicional coincide con los sensores; falta corroboración del otro.';
+    statement = `Un canal adicional coincide con ${origin}; falta corroboración del otro.`;
   } else {
     level = 'baja';
-    statement = 'Solo el detector sobre los sensores respalda la hipótesis.';
+    statement = declared
+      ? 'Solo un reporte declarado por una persona respalda la hipótesis; ningún sensor ni otro canal lo confirma.'
+      : 'Solo el detector sobre los sensores respalda la hipótesis.';
   }
 
   const basis = channels.filter((c) => c.verdict === 'supports').map((c) => c.channel);

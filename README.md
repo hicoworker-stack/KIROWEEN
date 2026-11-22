@@ -4,6 +4,8 @@
 
 `Dato → Anomalía → Correlación → Diagnóstico → Decisión → Orden de Trabajo → Expediente sellado`
 
+**Entrega para el concurso**: resumen, ensamblaje, uso de Kiro, guion de la demo y cómo publicar la URL pública en [docs/ENTREGA.md](docs/ENTREGA.md).
+
 ## Arquitectura
 
 | Capa | Módulos | Notas |
@@ -79,7 +81,7 @@ En un despliegue (`NODE_ENV=production`) siguen siendo obligatorios `AQUA_ALLOWE
 
 ### Video explicativo
 
-La pantalla de Inicio muestra, dentro del encabezado, un reproductor 16:9 con portada. El video incluido (`public/videos/aqua-sentinel-explicativo.mp4`, 16,5 s, sin audio) es una **animación ilustrativa generada por código con datos simulados**, no un video institucional con locución ni imágenes de campo. Si el archivo no existe o `enabled` es false, muestra «Video explicativo próximamente» y no simula ninguna reproducción. Para reemplazarlo copia el archivo a `public/videos/aqua-sentinel-explicativo.mp4` y ajusta `public/config/intro-video.json` (ahí también se cambian la ruta, la portada y los subtítulos). Más detalles en `public/videos/LEEME.txt`. La reproducción es siempre bajo demanda, sin autoplay.
+El encabezado de Inicio tiene un selector **English / Español** (inglés por defecto) que cambia sin recargar el título, el subtítulo y el video. Cada idioma muestra solo su versión del video, declarada en `public/config/intro-video.json` bajo `versions.en` y `versions.es`; si un idioma no tuviera versión, avisaría en ese idioma y nunca reproduciría la de otro. **English**: `public/videos/aqua-sentinel-demo-en.mp4` (2 min 12 s, subtítulos `aqua-sentinel-demo-en.vtt`, portada `video-poster-en.jpg`), una animación ilustrativa del flujo completo con todos sus textos en inglés y narración en inglés. **Español**: `public/videos/aqua-sentinel-demo.mp4` (2 min 20 s, subtítulos `aqua-sentinel-demo.vtt`), animación más la **grabación real de la aplicación**. Las dos usan **datos simulados** y **voz sintética** de Windows. La versión inglesa no graba la aplicación porque su interfaz está en español. La animación corta original sigue en `aqua-sentinel-explicativo.mp4`. La reproducción es siempre bajo demanda, sin autoplay. Detalles en `public/videos/LEEME.txt`.
 
 ## Interfaz
 
@@ -87,7 +89,7 @@ Cuatro apartados, en un menú desplegable: **Inicio** (presentación con video, 
 
 Cada dato indica su procedencia: **MEDIDO** (sensor), **DECLARADO** (una persona), **INFERIDO** (reglas y cálculos, sin IA), **HIPÓTESIS IA** (modelo generativo) y **SIMULADO** (dato sintético de demostración). Una hipótesis nunca se presenta como hecho. La interfaz respeta el rol (Lector, Operador, Administrador) usando la misma matriz de permisos que el servidor (`src/core/permissions.ts`), pero la autorización real siempre es la del servidor.
 
-Defectos del servidor que la interfaz muestra tal como son, sin maquillarlos: un reporte declarado se cuenta en el servidor como respaldo de «sensores» (la interfaz lo muestra como declarado) y al cerrar una orden el servidor escribe una lectura «restaurada» que no es una medición (la interfaz muestra el punto como pendiente de verificación hasta que haya mediciones posteriores). Siguen pendientes de corregir en el servidor.
+Correcciones de integridad (spec 11): un reporte de campo cuenta como «reporte» declarado y nunca como «sensores»; cerrar una orden no escribe ninguna lectura, el punto queda «pendiente de verificación» y la primera medición posterior al cierre decide si se recuperó y queda en el Trust Ledger (`POST_CLOSURE_MEASUREMENT`); el flujo de eventos se cierra cuando la sesión caduca, también por inactividad.
 ## Acceso y seguridad (Fase 2)
 
 Toda la API exige sesión (denegación por defecto). Solo son públicos `GET /api/health` (solo "vivo"), `GET /api/seal/public-key`, y las rutas de inicio de sesión.

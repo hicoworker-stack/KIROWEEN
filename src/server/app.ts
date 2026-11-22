@@ -182,6 +182,8 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
   const securityCfg = options.security ?? loadSecurityConfig(env);
   const authDir = path.dirname(statePath);
   const sessionIdleMs = Number(env.AQUA_SESSION_IDLE_MS) > 0 ? Number(env.AQUA_SESSION_IDLE_MS) : DEFAULT_IDLE_MS;
+  // Cada cuánto el flujo de eventos comprueba la sesión y envía un latido (F3: tope de lo que sobrevive tras caducar).
+  const ssePingMs = Math.min(15_000, Math.max(200, Number(env.AQUA_SSE_PING_MS) || 15_000));
   const sessionAbsoluteMs = Number(env.AQUA_SESSION_ABSOLUTE_MS) > 0 ? Number(env.AQUA_SESSION_ABSOLUTE_MS) : DEFAULT_ABSOLUTE_MS;
   const authStore = AuthStore.open(options.authPath ?? path.join(authDir, 'auth.json'), { idleMs: sessionIdleMs, absoluteMs: sessionAbsoluteMs, now: options.now, ...options.authStoreOptions });
   const audit = AuditLog.open(options.auditPath ?? path.join(authDir, 'audit.jsonl'), { keys, now: options.now, appendLine: options.auditAppendLine });
@@ -359,11 +361,17 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
     const full = statePayload();
     const fullJson = JSON.stringify(full);
     let visitorJson: string | null = null;
-    for (const client of sseClients) {
+    for (const client of [...sseClients]) {
       try {
+        const meta = sseMeta.get(client);
+        // F3: antes de enviar estado a un flujo con sesión se comprueba que siga vigente (también por inactividad).
+        if (meta && !meta.visitor && !authStore.isSessionValid(meta.idHash)) {
+          closeStream(client);
+          continue;
+        }
         // Los visitantes anónimos reciben la versión redactada; los usuarios con sesión, la completa.
         let payload = fullJson;
-        if (sseMeta.get(client)?.visitor) payload = visitorJson ??= JSON.stringify(redactForVisitor(full));
+        if (meta?.visitor) payload = visitorJson ??= JSON.stringify(redactForVisitor(full));
         client.write(`event: state_update\ndata: ${payload}\n\n`);
       } catch {
         sseClients.delete(client);
@@ -439,6 +447,9 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
       if (f.level === 'flow_anomaly') continue; // se informa en el panel hidráulico, no abre incidente ni orden
       const nodeIdx = state.nodes.findIndex((n) => n.id === f.nodeId);
       const node = state.nodes[nodeIdx];
+      // F2: con una orden recién cerrada, las lecturas del punto son anteriores al cierre. No se reabre un incidente con ellas:
+      // hay que esperar una medición nueva.
+      if (node.pendingVerification && Date.parse(node.current.timestamp) <= Date.parse(node.pendingVerification.closedAt)) continue;
       const existing = state.anomalies.find((a) => a.nodeId === f.nodeId && a.status === 'active' && a.origin === 'network-balance');
       const reach = f.candidates.map((c) => c.pipeId).join(', ');
       const title =
@@ -561,7 +572,25 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
           ...state.anomalies.filter((a) => !(a.nodeId === node.id && a.status === 'active' && (a.origin ?? 'node-rule') === 'node-rule')),
         ];
       }
-      state.nodes[idx] = { ...node, current: r, status: nodeStatusFor(node.id, anomaly) };
+      const pending = node.pendingVerification;
+      const verifies = Boolean(pending && Date.parse(r.timestamp) > Date.parse(pending.closedAt));
+      const { pendingVerification: _pv, ...nodeRest } = node;
+      state.nodes[idx] = { ...(verifies ? nodeRest : node), current: r, status: nodeStatusFor(node.id, anomaly) };
+      if (pending && verifies) {
+        // F2: la primera medición posterior al cierre es la que dice si el punto se recuperó. Queda en el ledger.
+        const recovered = !anomaly;
+        await append({
+          action: 'POST_CLOSURE_MEASUREMENT',
+          actor: 'Motor Determinista (Ingesta)',
+          assetId: node.id,
+          evidenceSummary: recovered
+            ? `${pending.workOrderId}: primera medición posterior al cierre dentro de lo normal; recuperación medida, no supuesta.`
+            : `${pending.workOrderId}: la primera medición posterior al cierre sigue fuera de lo normal (${anomaly!.title}).`,
+          previousState: 'pendiente de verificación',
+          newState: recovered ? 'recuperación medida' : 'anomalía persiste',
+          evidenceData: { workOrderId: pending.workOrderId, closedAt: pending.closedAt, readingId: r.id, readingTimestamp: r.timestamp, recovered, synthetic: r.synthetic },
+        });
+      }
       if (anomaly) {
         await append({
           action: 'TELEMETRY_ANOMALY_INGESTED',
@@ -632,7 +661,7 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
       } catch {
         clearInterval(keepAlive);
       }
-    }, 15000);
+    }, ssePingMs);
     keepAlive.unref?.();
     req.on('close', () => {
       clearInterval(keepAlive);
@@ -1250,17 +1279,10 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
     state.anomalies = state.anomalies.map((a) => (a.id === existing.anomalyId ? { ...a, status: 'resolved' } : a));
     const nodeIdx = state.nodes.findIndex((n) => n.id === existing.nodeId);
     if (nodeIdx !== -1) {
+      // F2 corregido: cerrar NO escribe ninguna lectura ni declara el punto estable. Queda pendiente de verificación
+      // hasta que llegue una medición posterior al cierre (ver ingestReadings).
       const node = state.nodes[nodeIdx];
-      const restored: TelemetryReading = {
-        id: `RESTORED-${node.id}-${Date.now().toString(36)}`,
-        timestamp: now,
-        nodeId: node.id,
-        ...node.baseline,
-        synthetic: true,
-        source: 'restored',
-      };
-      state.nodes[nodeIdx] = { ...node, status: 'nominal', current: restored };
-      state.seriesByNode[node.id] = [...(state.seriesByNode[node.id] ?? []).slice(-19), restored];
+      state.nodes[nodeIdx] = { ...node, pendingVerification: { workOrderId: existing.id, closedAt: now } };
       ctx.excessStreak[node.id] = 0;
     }
     persistAndBroadcast(false);
@@ -1499,7 +1521,7 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
           status: cls.status === 'active' ? 'active' : 'resolved',
           rulesTriggered: [
             {
-              ruleId: c.category === 'leak' ? 'PRESSURE_DROP_LEAK' : c.category === 'obstruction' ? 'FLOW_OBSTRUCTION' : c.category === 'sensor_fault' ? 'SENSOR_PHYSICAL_IMPLAUSIBILITY' : 'QUALITY_PARAMETER_ANOMALY',
+              ruleId: 'FIELD_REPORT_DECLARED', // F1: un reporte de campo no es una regla sobre sensores
               title: `Observación de campo sincronizada (${c.reporter})`,
               category: c.category,
               severityScore: severityBase,

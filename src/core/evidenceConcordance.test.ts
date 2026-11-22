@@ -21,6 +21,22 @@ function vision(over: Partial<VisionAnalysisResult> = {}): VisionAnalysisResult 
 
 const hydroSupports = { level: 'localized_leak' as const, excessLs: 6.6, sigmaLs: 1.2, candidatePipeIds: ['P-05'] };
 
+test('REQ-FIX-01 (F1): un reporte de campo declarado es el canal «reporte», no «sensores», y no sube el nivel', () => {
+  const declared = { ...leakAnomaly(), origin: 'offline-report' as const };
+  const r = evaluateConcordance({ anomaly: declared, vision: null, hydraulic: null });
+  assert.equal(r.channels[0].channel, 'reporte');
+  assert.match(r.channels[0].detail, /declarado/);
+  assert.deepEqual(r.basis, ['reporte']);
+  assert.equal(r.level, 'baja');
+  assert.match(r.statement, /reporte declarado/);
+  const withHydro = evaluateConcordance({ anomaly: declared, vision: null, hydraulic: hydroSupports });
+  assert.equal(withHydro.level, 'media');
+  assert.deepEqual(withHydro.basis, ['reporte', 'hidráulica']);
+  assert.ok(!/sensores/.test(withHydro.statement));
+  const d = buildDeterministicDiagnosisBody({ anomaly: declared, node: createBaselineNodes().find((n) => n.id === 'N-TRON-04')!, concordance: null } as any);
+  assert.deepEqual(d.evidenceBasis, ['reporte'], 'sin concordancia calculada, el respaldo por defecto tampoco dice «sensores»');
+});
+
 test('solo sensores: nivel "baja", sin número alguno (REQ-AI-02)', () => {
   const r = evaluateConcordance({ anomaly: leakAnomaly(), vision: null, hydraulic: null });
   assert.equal(r.level, 'baja');

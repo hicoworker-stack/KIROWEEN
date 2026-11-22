@@ -1,16 +1,24 @@
 VIDEO DE AQUA SENTINEL
 =======================
-Este es el video de la pantalla de Inicio: aqua-sentinel-explicativo.mp4.
-Es una ANIMACION ILUSTRATIVA (16,5 s, sin audio, datos simulados) generada con codigo;
-no es un video institucional con locucion ni imagenes de campo.
+La pantalla de Inicio reproduce aqua-sentinel-demo.mp4 (2 min 20 s) con los subtitulos
+aqua-sentinel-demo.vtt. Empieza con la animacion ilustrativa (aqua-sentinel-explicativo.mp4,
+16,5 s, sin audio) y sigue con la grabacion real de la aplicacion sobre DATOS SIMULADOS,
+narrada con VOZ SINTETICA. La foto de cierre que aparece es una imagen ilustrativa rotulada
+como simulada.
 Si el archivo no existe o enabled es false, la interfaz muestra la portada con
 "Video explicativo proximamente" y no simula ninguna reproduccion.
 
+UNA VERSION POR IDIOMA (selector English / Espanol del encabezado)
+En public/config/intro-video.json cada idioma tiene su entrada en "versions":
+   en -> aqua-sentinel-demo-en.mp4 + aqua-sentinel-demo-en.vtt + /images/video-poster-en.jpg
+         Animacion ilustrativa (2 min 12 s) con textos, narracion y subtitulos en ingles.
+   es -> aqua-sentinel-demo.mp4 + aqua-sentinel-demo.vtt + /images/video-poster.jpg
+Si un idioma no tiene entrada (o vale null), la interfaz muestra la portada con el aviso
+de "proximamente" en ese idioma y NUNCA reproduce el video del otro idioma.
+
 Para reemplazarlo por otro video (sin tocar el codigo):
 
-1. Copia el video, en formato MP4 (H.264 + AAC) o WebM, en esta carpeta con el nombre:
-
-       aqua-sentinel-explicativo.mp4
+1. Copia el video, en formato MP4 (H.264 + AAC) o WebM, en esta carpeta y pon su nombre en "src" de public/config/intro-video.json
 
    Formato horizontal 16:9 (por ejemplo 1280x720 o 1920x1080). Conviene que pese pocos MB.
 

@@ -182,7 +182,11 @@ test('REQ-LED-03/05: el cierre sella el expediente COMPLETO; verificado con la c
   assert.match(order.seal.dossierDigest, /^[a-f0-9]{64}$/);
   assert.equal(order.seal.receipt.payload.keyId, S.keyId);
   assert.equal((await patch(`/api/work-orders/${S.orderId}`, { status: 'En Progreso' })).status, 409, 'una orden cerrada no se reabre');
-  assert.equal(closed.data.nodes.find((n: any) => n.id === 'N-TRON-04').status, 'nominal');
+  // F2 corregido: cerrar no fabrica una lectura ni declara el punto estable; queda pendiente de verificación.
+  const closedNode = closed.data.nodes.find((n: any) => n.id === 'N-TRON-04');
+  assert.notEqual(closedNode.status, 'nominal', 'sin medición posterior no se declara recuperado');
+  assert.equal(closedNode.pendingVerification.workOrderId, S.orderId);
+  assert.ok(!closed.data.seriesByNode['N-TRON-04'].some((r: any) => r.source === 'restored'), 'ninguna lectura "restaurada"');
 
   const res = await get(`/api/work-orders/${S.orderId}/dossier`);
   assert.equal(res.status, 200);

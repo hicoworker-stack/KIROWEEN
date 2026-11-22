@@ -2,9 +2,48 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { DEFAULT_POSTER, DEFAULT_TITLE, parseVideoConfig, resolveVideoState } from './introVideo';
+import { HERO_COPY, HERO_LANGS } from './heroCopy';
+import { DEFAULT_POSTER, DEFAULT_TITLE, NEUTRAL_POSTER, parseVideoConfig, parseVideoConfigFor, resolveVideoState, selectVideoVersion } from './introVideo';
 
 /** REQ-PUB-03: el video explicativo se configura con un archivo y nunca se simula. */
+
+test('REQ-PUB-05: cada idioma toma SOLO su versión; si falta, no hay video y la portada no lleva texto de otro idioma', () => {
+  const cfg = { versions: { es: { src: '/videos/es.mp4', captions: '/videos/es.vtt', poster: '/images/es.jpg', title: 'Versión en español' }, en: null } };
+  const es = parseVideoConfigFor(cfg, 'es');
+  assert.equal(es.src, '/videos/es.mp4');
+  assert.equal(es.captions, '/videos/es.vtt');
+  const en = parseVideoConfigFor(cfg, 'en');
+  assert.equal(en.src, null, 'sin versión en inglés no se usa la española');
+  assert.equal(en.captions, null);
+  assert.equal(en.enabled, false, 'ni siquiera se consulta al servidor');
+  assert.equal(en.poster, NEUTRAL_POSTER, 'portada sin texto');
+  assert.equal(resolveVideoState(en, null), 'soon');
+
+  const both = { versions: { es: { src: '/videos/es.mp4' }, en: { src: '/videos/en.mp4', captions: '/videos/en.vtt' } } };
+  assert.equal(parseVideoConfigFor(both, 'en').src, '/videos/en.mp4');
+  assert.equal(parseVideoConfigFor(both, 'en').poster, NEUTRAL_POSTER, 'una versión inglesa sin portada propia no hereda la portada española');
+  assert.equal(parseVideoConfigFor(both, 'es').src, '/videos/es.mp4');
+  assert.equal(parseVideoConfigFor(both, 'es').poster, DEFAULT_POSTER);
+});
+
+test('REQ-PUB-05: el formato anterior (un solo video) es español salvo que declare otro idioma; los datos basura no dan video', () => {
+  const legacy = { src: '/videos/demo.mp4' };
+  assert.equal(parseVideoConfigFor(legacy, 'es').src, '/videos/demo.mp4');
+  assert.equal(parseVideoConfigFor(legacy, 'en').src, null);
+  assert.equal(parseVideoConfigFor({ src: '/videos/demo-en.mp4', lang: 'en' }, 'en').src, '/videos/demo-en.mp4');
+  assert.equal(parseVideoConfigFor({ src: '/videos/demo-en.mp4', lang: 'en' }, 'es').src, null);
+  for (const bad of [null, 'x', [], { versions: 'x' }, { versions: [] }, { versions: { en: 'x' } }, { versions: { en: [] } }]) assert.equal(selectVideoVersion(bad, 'en'), null, JSON.stringify(bad));
+  assert.equal(parseVideoConfigFor({ versions: { es: { src: '../../etc/passwd.mp4' } } }, 'es').src, null, 'la validación de rutas sigue aplicando');
+});
+
+test('REQ-PUB-05: los textos del Hero existen en los dos idiomas y no se mezclan', () => {
+  for (const lang of HERO_LANGS) {
+    const c = HERO_COPY[lang];
+    for (const v of [c.title, c.subtitle, ...Object.values(c.video)]) assert.ok(v.trim().length > 0);
+  }
+  assert.doesNotMatch(Object.values(HERO_COPY.en.video).join(' ') + HERO_COPY.en.title + HERO_COPY.en.subtitle, /[áéíóúñ¿¡]|video explicativo|próximamente/i, 'sin español en la versión inglesa');
+  assert.match(HERO_COPY.en.video.soon, /English/);
+});
 
 test('REQ-PUB-03: una configuración válida con video local se acepta', () => {
   const c = parseVideoConfig({ src: '/videos/aqua-sentinel-explicativo.mp4', poster: '/images/video-poster.svg', title: 'Mi video', captions: '/videos/es.vtt' });
@@ -59,12 +98,27 @@ test('REQ-PUB-03: solo se considera que hay video si el servidor lo entrega como
 test('REQ-PUB-03: la estructura de archivos para publicar el video existe en el repositorio y su configuración por defecto es válida', () => {
   const root = process.cwd();
   const cfg = JSON.parse(fs.readFileSync(path.join(root, 'public', 'config', 'intro-video.json'), 'utf8'));
-  const parsed = parseVideoConfig(cfg);
-  assert.equal(parsed.src, '/videos/aqua-sentinel-explicativo.mp4');
-  const file = path.join(root, 'public', parsed.src!);
-  assert.equal(parsed.enabled, fs.existsSync(file), 'enabled solo es true si el archivo de video existe (sin 404 ni reproducción simulada)');
-  if (parsed.enabled) assert.ok(fs.statSync(file).size > 10_000, 'el archivo de video no está vacío');
-  assert.ok(fs.existsSync(path.join(root, 'public', parsed.poster)), 'existe la portada configurada');
+  const srcs = new Set<string>();
+  for (const lang of HERO_LANGS) {
+    const parsed = parseVideoConfigFor(cfg, lang);
+    assert.ok(fs.existsSync(path.join(root, 'public', parsed.poster)), `${lang}: existe la portada configurada`);
+    if (!parsed.src) {
+      assert.equal(parsed.enabled, false, `${lang}: sin versión publicada no hay video que pedir`);
+      continue;
+    }
+    assert.ok(!parsed.external, `${lang}: video local`);
+    assert.ok(!srcs.has(parsed.src), 'cada idioma tiene su propio archivo: nunca se reutiliza el de otro idioma');
+    srcs.add(parsed.src);
+    const file = path.join(root, 'public', parsed.src);
+    assert.equal(parsed.enabled, fs.existsSync(file), `${lang}: enabled solo es true si el archivo de video existe (sin 404 ni reproducción simulada)`);
+    if (parsed.enabled) assert.ok(fs.statSync(file).size > 10_000, `${lang}: el archivo de video no está vacío`);
+    if (parsed.captions) {
+      const vtt = fs.readFileSync(path.join(root, 'public', parsed.captions), 'utf8');
+      assert.match(vtt, /^WEBVTT\s/, `${lang}: los subtítulos configurados existen y son WebVTT`);
+      assert.match(vtt, lang === 'es' ? /simulad/i : /simulated/i, `${lang}: la narración declara que los datos son simulados`);
+    }
+  }
+  assert.ok(parseVideoConfigFor(cfg, 'es').src, 'la versión en español está publicada');
   assert.ok(fs.existsSync(path.join(root, 'public', 'images', 'hero-network.svg')), 'existe la imagen del encabezado');
   assert.ok(fs.existsSync(path.join(root, 'public', 'videos')), 'existe la carpeta de videos');
   for (const svg of ['hero-network.svg', 'video-poster.svg']) {

@@ -55,6 +55,11 @@ export interface NetworkNode {
   status: HealthStatus;
   baseline: NodeBaseline;
   current: TelemetryReading;
+  /**
+   * Se cerró una orden en este punto y todavía no llegó ninguna medición posterior al cierre (corrección de F2).
+   * Mientras exista, `current` es la última medición ANTERIOR al cierre y el punto no se presenta como recuperado.
+   */
+  pendingVerification?: { workOrderId: string; closedAt: string };
   assetCode: string;
   material: string;
   diameterMm: number;
@@ -79,7 +84,9 @@ export interface DeterministicRuleHit {
     | 'SENSOR_PHYSICAL_IMPLAUSIBILITY'
     | 'SENSOR_STUCK_AT_VALUE'
     | 'QUALITY_PARAMETER_ANOMALY'
-    | 'HYDRAULIC_MASS_IMBALANCE';
+    | 'HYDRAULIC_MASS_IMBALANCE'
+    /** Reporte de campo declarado por una persona: no es una regla sobre lecturas de sensores. */
+    | 'FIELD_REPORT_DECLARED';
   title: string;
   category: AnomalyCategory;
   severityScore: number;

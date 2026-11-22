@@ -26,6 +26,21 @@ test('REQ-UX-03: un nodo cuya última lectura es la "restaurada" al cerrar una o
   assert.equal(nodeHealth(node({ status: 'nominal', current: reading({ source: 'restored' }) })), 'verifying', 'el servidor dice "nominal" pero la lectura no es una medición');
 });
 
+test('REQ-FIX-02 (F2): un punto con orden cerrada y sin medición posterior se muestra «pendiente de verificación», sea cual sea su estado', () => {
+  const pending = { workOrderId: 'OT-1', closedAt: '2026-06-01T13:00:00.000Z' };
+  assert.equal(nodeHealth(node({ status: 'critical', pendingVerification: pending })), 'verifying', 'las cifras son de antes del cierre');
+  assert.equal(nodeHealth(node({ status: 'nominal', pendingVerification: pending })), 'verifying');
+  assert.equal(nodeHealth(node({ status: 'nominal' })), 'stable', 'tras la medición posterior el servidor quita la marca');
+});
+
+test('REQ-FIX-01 (F1): el canal «reporte» del servidor se muestra como declarado, sin aviso de dato antiguo', () => {
+  const declared = anomaly({ origin: 'offline-report', synthetic: false });
+  const r = evidenceBasisLabels(declared, diag({ evidenceBasis: ['reporte', 'hidráulica'] }));
+  assert.deepEqual(r.labels, ['Reporte de campo (declarado)', 'Balance hidráulico']);
+  assert.equal(r.warning, undefined);
+  assert.equal(channelLabel(declared, 'reporte'), 'Reporte de campo (declarado)');
+});
+
 test('REQ-UX-03: tras el cierre solo cuentan las mediciones POSTERIORES; la lectura restaurada y la línea base no verifican nada', () => {
   const closed = order({ status: 'Cerrada', updatedAt: '2026-06-01T13:00:00.000Z' });
   assert.deepEqual(orderVerification(order(), []), { state: 'not_closed' });

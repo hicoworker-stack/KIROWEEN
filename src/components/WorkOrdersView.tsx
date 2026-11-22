@@ -318,14 +318,14 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = (p) => {
                           })
                         }
                       >
-                        La orden queda sellada en el registro y ya no se puede reabrir. El sistema marcará el punto como estable, <strong>aunque todavía no haya mediciones reales que lo confirmen</strong>: después tendrás que comprobar que se recuperó.
+                        La orden queda sellada en el registro y ya no se puede reabrir. El punto <strong>no se dará por recuperado</strong>: quedará pendiente de verificación hasta que llegue una medición posterior al cierre.
                       </ConfirmDialog>
                     </Question>
                   ) : (
                     <Question q="¿Se recuperó la infraestructura?" id="q-ord-verify">
                       {v.state === 'pending' ? (
                         <Notice tone="verifying" title="Aún no se puede confirmar">
-                          La orden se cerró {timeAgo(v.closedAt)}, pero todavía no hay mediciones reales posteriores. Los valores «normales» que se ven en el punto los escribió el sistema al cerrar la orden: no son una medición. Cuando lleguen lecturas nuevas aparecerán aquí para que las compares.
+                          La orden se cerró {timeAgo(v.closedAt)}, pero todavía no hay mediciones posteriores. El punto sigue pendiente de verificación y sus cifras son de antes del cierre. Cuando llegue una lectura nueva aparecerá aquí.
                         </Notice>
                       ) : v.state === 'measured' ? (
                         <div className="space-y-2 rounded-xl border border-line bg-surface p-4">
@@ -336,7 +336,11 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = (p) => {
                             Presión {v.last.pressureBar.toFixed(2)} bar{node ? ` (lo normal: ${node.baseline.pressureBar.toFixed(2)} bar)` : ''} · caudal {v.last.flowLs.toFixed(1)} L/s{node ? ` (lo normal: ${node.baseline.flowLs.toFixed(1)} L/s)` : ''}
                             {v.last.synthetic ? ' · dato simulado' : ''}.
                           </p>
-                          <p className="text-sm text-quiet">Compáralas con lo normal. El sistema todavía no emite un veredicto de recuperación por sí mismo.</p>
+                          <p className="text-sm text-quiet">
+                            {node && node.status === 'nominal' && !node.pendingVerification && node.current.source !== 'restored' && Date.parse(node.current.timestamp) > Date.parse(v.closedAt)
+                              ? 'La medición posterior está dentro de lo normal: la recuperación está medida, no supuesta. Quedó registrada en el Trust Ledger.'
+                              : 'Compárala con lo normal. La primera medición posterior al cierre quedó registrada en el Trust Ledger.'}
+                          </p>
                         </div>
                       ) : null}
                       <div className="rounded-xl border border-ok/30 bg-ok/5 p-4 text-sm text-soft">

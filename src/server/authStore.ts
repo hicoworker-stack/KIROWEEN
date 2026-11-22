@@ -521,12 +521,18 @@ export class AuthStore {
     return { user, session: s };
   }
 
+  /**
+   * Validez de una sesión SIN renovarla (no actualiza la última actividad). La usa el flujo de eventos, que es pasivo:
+   * mantener abierto el flujo no cuenta como actividad. Comprueba también la inactividad (corrección de F3).
+   */
   isSessionValid(idHash: string): boolean {
     this.reloadIfChanged();
     const s = this.data.sessions.find((x) => x.idHash === idHash);
     if (!s || s.revokedAt) return false;
     const nowMs = this.now();
     if (nowMs >= new Date(s.absoluteExpiresAt).getTime()) return false;
+    const seen = this.lastSeen.get(idHash) ?? new Date(s.lastSeenAt).getTime();
+    if (nowMs - seen >= this.idleMs) return false;
     const user = this.data.users.find((u) => u.id === s.userId);
     return Boolean(user && user.active && user.role === s.role);
   }

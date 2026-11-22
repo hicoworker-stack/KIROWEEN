@@ -1,7 +1,18 @@
 {
-  "enabled": true,
-  "src": "/videos/aqua-sentinel-explicativo.mp4",
-  "poster": "/images/video-poster.jpg",
-  "title": "Aqua Sentinel: animación ilustrativa del recorrido del agua a la acción verificable (datos simulados, sin audio)",
-  "captions": null
+  "versions": {
+    "en": {
+      "enabled": true,
+      "src": "/videos/aqua-sentinel-demo-en.mp4",
+      "poster": "/images/video-poster-en.jpg",
+      "title": "Aqua Sentinel: narrated illustrative animation of the full workflow (simulated data, synthetic voice)",
+      "captions": "/videos/aqua-sentinel-demo-en.vtt"
+    },
+    "es": {
+      "enabled": true,
+      "src": "/videos/aqua-sentinel-demo.mp4",
+      "poster": "/images/video-poster.jpg",
+      "title": "Aqua Sentinel: demostración narrada del flujo completo (datos simulados, voz sintética)",
+      "captions": "/videos/aqua-sentinel-demo.vtt"
+    }
+  }
 }

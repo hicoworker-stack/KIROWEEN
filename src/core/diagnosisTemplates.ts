@@ -68,7 +68,7 @@ export function buildDeterministicDiagnosisBody(ctx: DiagnosisContext): Diagnosi
     priority: anomaly.priority.priority,
     priorityScore: anomaly.priority.totalScore,
     evidenceLevel: ctx.concordance?.level ?? ('baja' as const),
-    evidenceBasis: ctx.concordance?.basis ?? ['sensores'],
+    evidenceBasis: ctx.concordance?.basis ?? [anomaly.origin === 'offline-report' ? 'reporte' : 'sensores'],
   };
 
   if (anomaly.category === 'leak') return leakBody(ctx, base);

@@ -28,16 +28,23 @@ export const HEALTH_META: Record<HealthKey, { label: string; tone: Tone; help: s
   offline: { label: 'Sin conexión', tone: 'offline', help: 'No hay conexión con el servidor. Lo que registres se guarda en este dispositivo.' },
 };
 
-/** El nodo está "pendiente de verificación" si su última lectura no es una medición sino la restauración al cerrar una orden. */
+/** El punto lleva una lectura "restaurada" escrita al cerrar una orden por una versión anterior del servidor (no es una medición). */
+export const hasLegacyRestoredReading = (node: Pick<NetworkNode, 'current'>) => node.current.source === 'restored';
+
+/**
+ * El nodo está "pendiente de verificación" si se cerró una orden y aún no llegó ninguna medición posterior (F2 corregido:
+ * el servidor lo marca con `pendingVerification`). Los estados guardados antes de la corrección traen en su lugar una
+ * lectura "restaurada", que tampoco es una medición.
+ */
 export function nodeHealth(node: NetworkNode): HealthKey {
-  if (node.current.source === 'restored') return 'verifying';
+  if (node.pendingVerification || hasLegacyRestoredReading(node)) return 'verifying';
   if (node.status === 'critical') return 'critical';
   if (node.status === 'warning' || node.status === 'fault') return 'attention';
   return 'stable';
 }
 
 export const nodeHealthDetail = (node: NetworkNode): string =>
-  node.status === 'fault' && node.current.source !== 'restored' ? 'El sensor no da lecturas confiables.' : HEALTH_META[nodeHealth(node)].help;
+  node.status === 'fault' && nodeHealth(node) !== 'verifying' ? 'El sensor no da lecturas confiables.' : HEALTH_META[nodeHealth(node)].help;
 
 export function urgency(priority: PriorityLevel): { label: string; tone: Tone } {
   switch (priority) {
@@ -83,25 +90,27 @@ export const diagnosisProvenance = (d: Pick<AquaBrainDiagnosis, 'providerMode'>)
 export const isSyntheticNode = (n: NetworkNode) => Boolean(n.current.synthetic);
 
 /**
- * Canales de respaldo que se muestran al usuario. El servidor cuenta SIEMPRE el canal "sensores" (defecto F1 de la auditoría):
- * en un reporte declarado por una persona eso es falso, así que aquí se muestra como "Reporte de campo (declarado)".
+ * Canales de respaldo que se muestran al usuario. El servidor ya cuenta un reporte de campo como canal "reporte" (F1 corregido).
+ * Los diagnósticos guardados antes de la corrección pueden traer "sensores" en un reporte declarado: se siguen mostrando
+ * como "Reporte de campo (declarado)" y con un aviso, nunca como lecturas de sensores.
  */
 export function evidenceBasisLabels(anomaly: Pick<AnomalyEvent, 'origin'>, diagnosis: Pick<AquaBrainDiagnosis, 'evidenceBasis'> | null): { labels: string[]; warning?: string } {
   const declared = anomaly.origin === 'offline-report';
-  const map: Record<string, string> = { sensores: 'Lecturas de sensores', hidráulica: 'Balance hidráulico', fotografía: 'Fotografía analizada' };
+  const map: Record<string, string> = { sensores: 'Lecturas de sensores', reporte: 'Reporte de campo (declarado)', hidráulica: 'Balance hidráulico', fotografía: 'Fotografía analizada' };
   const basis = diagnosis?.evidenceBasis ?? [];
-  const labels = basis.filter((b) => !(declared && b === 'sensores')).map((b) => map[b] ?? b);
-  if (declared) labels.unshift('Reporte de campo (declarado)');
+  const labels = basis.filter((b) => !(declared && (b === 'sensores' || b === 'reporte'))).map((b) => map[b] ?? b);
+  if (declared) labels.unshift(map.reporte);
   return {
     labels,
     warning: declared && basis.includes('sensores')
-      ? 'El servidor cuenta este reporte como respaldo de «sensores», pero lo escribió una persona y ningún sensor lo confirma. Se muestra como declarado.'
+      ? 'Este diagnóstico se guardó antes de una corrección y contaba el reporte como respaldo de «sensores». Lo escribió una persona y ningún sensor lo confirma: se muestra como declarado.'
       : undefined,
   };
 }
 
 /** Nombre claro de cada canal de concordancia para el usuario. */
 export function channelLabel(anomaly: Pick<AnomalyEvent, 'origin'>, channel: string): string {
+  if (channel === 'reporte') return 'Reporte de campo (declarado)';
   if (channel === 'sensores') return anomaly.origin === 'offline-report' ? 'Reporte de campo (declarado)' : 'Lecturas de sensores';
   if (channel === 'hidráulica') return 'Balance hidráulico';
   if (channel === 'fotografía') return 'Fotografía';
@@ -109,6 +118,7 @@ export function channelLabel(anomaly: Pick<AnomalyEvent, 'origin'>, channel: str
 }
 
 export function channelProvenance(anomaly: Pick<AnomalyEvent, 'origin' | 'synthetic'>, channel: string, visionIsAi: boolean): Provenance[] {
+  if (channel === 'reporte') return ['declarado'];
   if (channel === 'sensores') return anomaly.origin === 'offline-report' ? ['declarado'] : anomaly.synthetic ? ['medido', 'simulado'] : ['medido'];
   if (channel === 'hidráulica') return anomaly.synthetic ? ['inferido', 'simulado'] : ['inferido'];
   return visionIsAi ? ['hipotesis_ia'] : [];
@@ -205,9 +215,8 @@ export type OrderVerification =
 const NOT_MEASUREMENT = new Set(['restored', 'baseline']);
 
 /**
- * El servidor, al cerrar una orden, escribe una lectura "restaurada" con los valores normales y marca el nodo como estable
- * (defecto F2 de la auditoría). Esa lectura NO es una medición. Aquí solo cuentan las lecturas posteriores al cierre
- * que no sean esa restauración.
+ * Tras el cierre solo cuentan las mediciones posteriores. Se excluyen la línea base y la lectura "restaurada" que
+ * escribían las versiones anteriores del servidor al cerrar (F2, ya corregido en el servidor).
  */
 export function orderVerification(order: Pick<SmartWorkOrder, 'status' | 'updatedAt' | 'seal'>, series: TelemetryReading[] | undefined): OrderVerification {
   if (order.status !== 'Cerrada') return { state: 'not_closed' };

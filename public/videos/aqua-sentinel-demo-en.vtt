@@ -1,0 +1,85 @@
+WEBVTT
+
+00:00:00.900 --> 00:00:01.975
+Aqua Sentinel.
+
+00:00:01.975 --> 00:00:04.664
+Intelligence to protect every drop.
+
+00:00:04.664 --> 00:00:11.270
+This is an illustrative animation, with simulated data from a community water network.
+
+00:00:12.170 --> 00:00:14.521
+Meet a community water network.
+
+00:00:14.521 --> 00:00:18.312
+Sensors measure pressure, flow, and water quality.
+
+00:00:18.312 --> 00:00:23.620
+All of its data is synthetic, and the platform labels it as simulated.
+
+00:00:24.520 --> 00:00:26.706
+A leak starts on a pipe section.
+
+00:00:26.706 --> 00:00:31.350
+The meters show that more water enters the network than is consumed.
+
+00:00:32.250 --> 00:00:38.253
+The deterministic engine detects the anomaly, using physical rules and a water balance.
+
+00:00:38.253 --> 00:00:41.014
+It never invents confidence percentages.
+
+00:00:41.014 --> 00:00:46.810
+It reports a support level, based on how many independent sources of evidence agree.
+
+00:00:47.710 --> 00:00:50.771
+Every data point shows where it comes from:
+
+00:00:50.771 --> 00:00:53.832
+measured, inferred, declared, or simulated.
+
+00:00:53.832 --> 00:00:58.530
+A photo that no vision model has analyzed is not used as evidence.
+
+00:00:59.430 --> 00:01:03.345
+A person reviews the recommendation, and decides.
+
+00:01:03.345 --> 00:01:07.660
+Accepting it creates a work order, with its task list.
+
+00:01:08.560 --> 00:01:11.951
+The crew starts the job, and checks off each task.
+
+00:01:11.951 --> 00:01:16.360
+Every change is recorded with the name of the person who made it.
+
+00:01:17.260 --> 00:01:25.290
+The order can only be closed when every task is complete and a photo is attached, sealed with its SHA-256 fingerprint.
+
+00:01:26.190 --> 00:01:31.076
+After closing, the platform does not assume the site has recovered.
+
+00:01:31.076 --> 00:01:35.670
+It stays pending verification, until a new measurement arrives.
+
+00:01:36.570 --> 00:01:41.061
+The next measurement arrives, also simulated in this demo.
+
+00:01:41.061 --> 00:01:45.940
+It is back to normal, so the recovery is measured, not assumed.
+
+00:01:46.840 --> 00:01:51.649
+Everything is written to the Trust Ledger, a hash chain that can be verified.
+
+00:01:51.649 --> 00:01:58.770
+It proves the integrity of the record, but it does not guarantee that whoever controls the server cannot alter it.
+
+00:01:59.670 --> 00:02:00.765
+Aqua Sentinel:
+
+00:02:00.765 --> 00:02:03.892
+from an anomaly, to a verifiable action.
+
+00:02:03.892 --> 00:02:10.850
+Built with Kiro, from specifications, to requirements, tests, and automated verification.

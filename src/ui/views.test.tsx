@@ -9,7 +9,7 @@ import { HomeView, HomeViewProps } from '../components/HomeView';
 import { IncidentsView, IncidentsViewProps } from '../components/IncidentsView';
 import { MapView } from '../components/MapView';
 import { WorkOrdersView, WorkOrdersViewProps } from '../components/WorkOrdersView';
-import { HowItWorks, IntroVideo } from '../components/IntroSection';
+import { HowItWorks, IntroSection, IntroVideo } from '../components/IntroSection';
 import { parseVideoConfig } from './introVideo';
 import { anomaly, diag, node, order, reading } from './fixtures';
 
@@ -138,12 +138,13 @@ test('REQ-UX-03: F2 visible. Una orden cerrada sin mediciones posteriores dice "
   const t = text(html(<WorkOrdersView {...ordersProps()} />));
   assert.match(t, /Pendiente de verificación/);
   assert.match(t, /Aún no se puede confirmar/);
-  assert.match(t, /no son una medición/);
+  assert.match(t, /sus cifras son de antes del cierre/);
   assert.doesNotMatch(t, /Restaurar Nodo/);
   assert.doesNotMatch(t, /verificada en campo/);
   const measured = text(html(<WorkOrdersView {...ordersProps({ seriesByNode: { N1: [reading({ timestamp: '2026-06-01T13:30:00.000Z', source: 'api' })] } })} />));
   assert.match(measured, /Hay 1 medición posterior/);
-  assert.match(measured, /no emite un veredicto de recuperación/);
+  assert.match(measured, /quedó registrada en el Trust Ledger/);
+  assert.doesNotMatch(measured, /recuperación está medida/, 'el punto sigue con la lectura antigua: no se declara recuperado');
   assert.doesNotMatch(measured, /Aún no se puede confirmar/);
 });
 
@@ -226,11 +227,12 @@ test('REQ-PUB-04: el visitante ve la presentación del producto arriba (título,
   const t = text(h);
   assert.equal((h.match(/<h1/g) ?? []).length, 1, 'una sola h1 en la página');
   assert.match(h, /<h1[^>]*id="hero-title"/);
-  assert.match(t, /Inteligencia para proteger cada gota\./);
-  assert.match(t, /Detectamos anomalías, analizamos infraestructuras de agua y transformamos información en acciones verificables\./);
+  // REQ-PUB-05: el Hero arranca en inglés.
+  assert.match(t, /Intelligence to protect every drop\./);
+  assert.match(t, /We detect anomalies, analyze water infrastructure and turn information into verifiable actions\./);
   assert.match(h, /aspect-video/, 'contenedor 16:9');
-  assert.match(h, /src="\/images\/video-poster\.svg"/, 'portada antes de reproducir');
-  assert.match(h, /alt="Portada del video explicativo/);
+  assert.match(h, /src="\/images\/hero-network\.svg"/, 'portada neutra antes de saber si hay video en inglés');
+  assert.match(h, /alt="Cover of the explainer video/);
   const order = ['hero-title', 'aspect-video', 'how-title', 'explore-title', 'Estado de la red ahora', 'home-status'].map((k) => h.indexOf(k));
   assert.ok(order.every((n) => n > 0) && order.every((n, i) => i === 0 || n > order[i - 1]), `orden de las secciones: ${order.join(',')}`);
   assert.match(t, /Empezar a explorar/);
@@ -283,6 +285,35 @@ test('REQ-PUB-03: con video publicado se reproduce solo bajo demanda: sin autopl
   assert.doesNotMatch(h, /Video explicativo próximamente/);
   assert.match(h, /<track[^>]*kind="captions"[^>]*src="\/videos\/es\.vtt"|<track[^>]*src="\/videos\/es\.vtt"[^>]*kind="captions"/);
   assert.match(h, /aria-label="Aqua Sentinel"/);
+});
+
+test('REQ-PUB-05: el Hero tiene un selector English / Español, con inglés por defecto, y cambia sus textos', () => {
+  const en = html(<IntroSection onNavigate={noop} />);
+  assert.match(en, /role="group" aria-label="Language \/ Idioma"/);
+  assert.match(en, /<button[^>]*lang="en"[^>]*aria-pressed="true"[^>]*>English<\/button>/);
+  assert.match(en, /<button[^>]*lang="es"[^>]*aria-pressed="false"[^>]*>Español<\/button>/);
+  assert.match(en, /<div class="max-w-2xl space-y-4" lang="en">/, 'el idioma se declara para lectores de pantalla');
+  assert.match(text(en), /Intelligence to protect every drop\./);
+  assert.doesNotMatch(text(en), /Inteligencia para proteger cada gota/);
+  const es = html(<IntroSection onNavigate={noop} initialLang="es" />);
+  assert.match(es, /<button[^>]*lang="es"[^>]*aria-pressed="true"/);
+  assert.match(text(es), /Inteligencia para proteger cada gota\./);
+  assert.doesNotMatch(text(es), /Intelligence to protect every drop/);
+  assert.match(es, /<figure aria-label="Video explicativo de Aqua Sentinel" lang="es"/);
+});
+
+test('REQ-PUB-05: sin versión en inglés, English avisa en inglés y no reproduce el video español', () => {
+  const h = html(<IntroVideo lang="en" forceState="soon" />);
+  const t = text(h);
+  assert.match(t, /English version coming soon/);
+  assert.doesNotMatch(t, /próximamente|Video explicativo/);
+  assert.doesNotMatch(h, /<video|aqua-sentinel-demo/, 'ningún reproductor ni archivo en español');
+  assert.match(h, /aria-label="Play the explainer video \(not available yet\)"/);
+  assert.match(h, /<img[^>]*src="\/images\/hero-network\.svg"/, 'portada sin texto');
+  const ready = html(<IntroVideo lang="en" forceState="ready" forceConfig={parseVideoConfig({ src: '/videos/en.mp4', captions: '/videos/en.vtt' })} />);
+  assert.match(ready, /<track[^>]*srcLang="en"|<track[^>]*srclang="en"/i, 'subtítulos declarados en inglés');
+  assert.match(ready, /label="English"/);
+  assert.match(ready, /aria-label="Play the explainer video"/);
 });
 
 test('REQ-PUB-03: si el video no carga, se avisa y se vuelve a la portada', () => {

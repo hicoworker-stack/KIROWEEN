@@ -10,6 +10,8 @@
  * rutas locales de /videos y /images, o una URL https de un origen que además debe autorizar la CSP (AQUA_MEDIA_ORIGINS).
  */
 
+import { HeroLang, isHeroLang } from './heroCopy';
+
 export const DEFAULT_POSTER = '/images/video-poster.svg';
 export const DEFAULT_CONFIG_URL = '/config/intro-video.json';
 export const DEFAULT_TITLE = 'Aqua Sentinel: inteligencia para proteger cada gota';
@@ -62,6 +64,41 @@ export function parseVideoConfig(raw: unknown): IntroVideoConfig {
     if (t) base.title = t;
   }
   return base;
+}
+
+// ───────────── Una versión del video por idioma (REQ-PUB-05) ─────────────
+
+/** Portada sin texto para un idioma que aún no tiene video: así nunca se muestra una portada en el idioma equivocado. */
+export const NEUTRAL_POSTER = '/images/hero-network.svg';
+
+/**
+ * Elige la entrada de configuración de UN idioma. Formato:
+ *   { "versions": { "es": { src, poster, title, captions, enabled }, "en": { ... } } }
+ * Si el idioma no tiene entrada, no hay video para él: NUNCA se usa la versión de otro idioma.
+ * El formato anterior (sin "versions") describe un único video cuyo idioma indica "lang"; sin "lang" se asume español,
+ * el único idioma que tenía la plataforma cuando se usaba ese formato.
+ */
+export function selectVideoVersion(raw: unknown, lang: HeroLang): Record<string, unknown> | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  if (r.versions !== undefined) {
+    const versions = r.versions;
+    if (!versions || typeof versions !== 'object' || Array.isArray(versions)) return null;
+    const v = (versions as Record<string, unknown>)[lang];
+    return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+  }
+  const declared = isHeroLang(r.lang) ? r.lang : 'es';
+  return declared === lang ? r : null;
+}
+
+/** Configuración validada del video de un idioma. Sin versión para ese idioma: sin video y con portada neutra. */
+export function parseVideoConfigFor(raw: unknown, lang: HeroLang): IntroVideoConfig {
+  const version = selectVideoVersion(raw, lang);
+  if (!version) return { ...parseVideoConfig(null), poster: lang === 'es' ? DEFAULT_POSTER : NEUTRAL_POSTER, enabled: false };
+  const cfg = parseVideoConfig(version);
+  // Una portada no declarada para el idioma no hereda la portada por defecto (que lleva texto en español).
+  if (lang !== 'es' && typeof version.poster !== 'string') cfg.poster = NEUTRAL_POSTER;
+  return cfg;
 }
 
 /**

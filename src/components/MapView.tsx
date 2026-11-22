@@ -2,7 +2,7 @@ import React from 'react';
 import { ArrowRight, LineChart } from 'lucide-react';
 import { analyzeNetworkHydraulics } from '../core/graphHydrology';
 import { AnomalyEvent, NetworkNode, NodeBaseline, PipeSegment } from '../core/types';
-import { AdvancedTab, HEALTH_META, HealthKey, incidentProvenance, incidentTitle, incidentWhatHappens, nodeHealth, nodeHealthDetail, Provenance, timeAgo } from '../ui/vocab';
+import { AdvancedTab, hasLegacyRestoredReading, HEALTH_META, HealthKey, incidentProvenance, incidentTitle, incidentWhatHappens, nodeHealth, nodeHealthDetail, Provenance, timeAgo } from '../ui/vocab';
 import { Button, Disclosure, HEALTH_TONE, MetricRow, ProvenanceRow, Question, StatusPill, TONE } from './ui';
 import { NetworkMap } from './NetworkMap';
 
@@ -34,7 +34,8 @@ export const MapView: React.FC<MapViewProps> = ({ nodes, pipes, anomalies, selec
   const health = nodeHealth(node);
   const incident = anomalies.filter((a) => a.nodeId === node.id && a.status === 'active')[0] ?? null;
   const risk = analyzeNetworkHydraulics(nodes, pipes, anomalies).propagatedByNode[node.id];
-  const restored = node.current.source === 'restored';
+  const restored = hasLegacyRestoredReading(node);
+  const awaiting = Boolean(node.pendingVerification) && !restored;
   const provenance: Provenance[] = restored ? [] : node.current.synthetic ? ['medido', 'simulado'] : ['medido'];
 
   return (
@@ -95,7 +96,12 @@ export const MapView: React.FC<MapViewProps> = ({ nodes, pipes, anomalies, selec
           <Question q="Lecturas ahora" id="q-node-readings">
             {restored && (
               <p className="rounded-lg border border-verifying/40 bg-verifying/10 px-3 py-2 text-sm text-soft">
-                Estas cifras no son una medición: son los valores normales que el sistema escribió al cerrar la orden. Aún no hay mediciones reales posteriores.
+                Estas cifras no son una medición: son los valores normales que una versión anterior del sistema escribió al cerrar la orden. Aún no hay mediciones reales posteriores.
+              </p>
+            )}
+            {awaiting && (
+              <p className="rounded-lg border border-verifying/40 bg-verifying/10 px-3 py-2 text-sm text-soft">
+                Se cerró la orden {node.pendingVerification!.workOrderId}. Estas son las últimas mediciones de antes del cierre: la recuperación se confirmará con la próxima medición.
               </p>
             )}
             <div>

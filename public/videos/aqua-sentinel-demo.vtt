@@ -1,0 +1,88 @@
+WEBVTT
+
+00:00:00.800 --> 00:00:01.878
+Aqua Sentinel.
+
+00:00:01.878 --> 00:00:04.727
+Inteligencia para proteger cada gota.
+
+00:00:04.727 --> 00:00:10.580
+Esta es una demostración con datos simulados de una red comunitaria de agua.
+
+00:00:17.250 --> 00:00:20.768
+Esta es la red de San Cristóbal de las Aguas.
+
+00:00:20.768 --> 00:00:26.083
+Sus datos son sintéticos, y la plataforma los rotula como simulados.
+
+00:00:26.083 --> 00:00:28.350
+Por ahora, todo está estable.
+
+00:00:29.066 --> 00:00:33.446
+Para la demostración, provocamos una fuga en un tramo de la red.
+
+00:00:33.446 --> 00:00:37.826
+Los medidores registran que entra más agua de la que se consume.
+
+00:00:38.546 --> 00:00:44.150
+El motor determinista detecta la anomalía con reglas físicas y el balance de agua.
+
+00:00:44.150 --> 00:00:46.610
+No inventa porcentajes de confianza:
+
+00:00:46.610 --> 00:00:51.736
+informa un nivel de respaldo, según cuántas evidencias distintas coinciden.
+
+00:00:52.438 --> 00:00:54.802
+Cada dato muestra su procedencia:
+
+00:00:54.802 --> 00:00:57.595
+medido, inferido, declarado o simulado.
+
+00:00:57.595 --> 00:01:06.548
+La foto vinculada no fue analizada por ningún modelo de visión, y la plataforma lo dice, en lugar de inventar lo que muestra.
+
+00:01:07.253 --> 00:01:10.768
+Una persona revisa la recomendación y decide.
+
+00:01:10.768 --> 00:01:15.923
+Al aceptarla, se crea la orden de trabajo, con su lista de tareas.
+
+00:01:16.640 --> 00:01:20.318
+La cuadrilla inicia la intervención y marca cada tarea.
+
+00:01:20.318 --> 00:01:24.330
+Cada cambio queda registrado con el nombre de quien lo hizo.
+
+00:01:25.723 --> 00:01:34.173
+La orden solo se puede cerrar con todas las tareas completas y una foto, que se sella con su huella SHA-256.
+
+00:01:34.876 --> 00:01:38.810
+Al cerrar, la plataforma no da el punto por recuperado.
+
+00:01:38.810 --> 00:01:43.746
+Queda pendiente de verificación, hasta que llegue una medición nueva.
+
+00:01:44.458 --> 00:01:49.418
+Llega la siguiente medición, también simulada en esta demostración.
+
+00:01:49.418 --> 00:01:51.269
+Está dentro de lo normal:
+
+00:01:51.269 --> 00:01:54.378
+la recuperación queda medida, no supuesta.
+
+00:01:55.094 --> 00:01:59.952
+Todo queda en el Trust Ledger, una cadena de hashes que se puede verificar.
+
+00:01:59.952 --> 00:02:06.624
+Prueba la integridad del registro, pero no garantiza que quien controla el servidor no pueda alterarlo.
+
+00:02:07.340 --> 00:02:08.375
+Aqua Sentinel:
+
+00:02:08.375 --> 00:02:11.332
+de la anomalía a una acción verificable.
+
+00:02:11.332 --> 00:02:19.020
+Construido con Kiro, de las especificaciones a los requisitos, las pruebas y su verificación automática.

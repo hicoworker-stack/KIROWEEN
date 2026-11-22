@@ -15,7 +15,7 @@ Objetivo: que cualquier persona, sin formación técnica, entienda el estado de 
 - **REQ-UX-05**: Roles, adaptación y accesibilidad. La interfaz oculta o desactiva lo que el rol no puede hacer usando la misma matriz de permisos que el servidor, pero la autorización real sigue siendo la del servidor. Controles táctiles de al menos 44 px, foco visible, salto al contenido, texto alternativo, confirmación antes de operaciones sensibles, indicador de conexión y estados de carga y error.
 
 ## 3. Limitaciones declaradas
-- F1, F2 y F3 siguen pendientes en el servidor: la interfaz los hace visibles (F1 y F2) pero no los corrige; F3 (flujo SSE tras expirar la sesión por inactividad) no tiene remedio en la interfaz.
+- F1, F2 y F3 están corregidos en el servidor (spec 11). La interfaz conserva el tratamiento de los datos guardados antes de la corrección.
 - No existe pantalla de gestión de usuarios ni de consulta de la auditoría: sus endpoints existen, pero no se añadió interfaz nueva en esta etapa.
 - Las pruebas automáticas cubren el vocabulario y la renderización de las vistas; la navegación real en navegador, el móvil y el modo sin conexión se validan a mano y no forman parte de `npm test`.
 

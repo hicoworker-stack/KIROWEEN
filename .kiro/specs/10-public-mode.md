@@ -15,18 +15,21 @@ Objetivo: que cualquier persona (usuarios, instituciones, aliados, jurados) abra
 - **REQ-PUB-01**: El modo público admite visitantes anónimos solo en tres rutas GET de lectura; cualquier otra ruta o método sigue exigiendo sesión, CSRF y permiso. Es explícito y reversible, y las rutas públicas y protegidas están documentadas.
 - **REQ-PUB-02**: La instancia pública sirve únicamente datos sintéticos de un estado aislado, redactados para visitantes, sembrados con la API real, y se niega a arrancar con lecturas de campo.
 - **REQ-PUB-03**: El video explicativo es configurable por archivo, validado, bajo demanda y nunca simulado; la CSP solo permite video del propio servidor u orígenes https autorizados.
+- **REQ-PUB-05**: El Hero ofrece un selector English / Español (inglés por defecto) que cambia sin recargar su título, su subtítulo y su video. Cada idioma muestra solo su propia versión del video; si un idioma no la tiene, se avisa en ese idioma y nunca se usa la de otro. Al cambiar de idioma el video anterior se detiene y desaparece, de modo que nunca suenan dos.
 - **REQ-PUB-04**: La navegación es un menú desplegable accesible y la pantalla de Inicio presenta título, video, flujo CAPTURA → DETECCIÓN → ANÁLISIS → ACCIÓN → VERIFICACIÓN y acceso a la plataforma, sin ofrecer al visitante acciones que no puede usar.
 
 ## 3. Limitaciones declaradas
 - Quien inicie sesión en una instancia pública deja su nombre visible para los visitantes en el registro de la demostración.
 - Los visitantes comparten el cupo anónimo por IP; detrás de un proxy sin `AQUA_TRUSTED_PROXIES` todos comparten una.
 - La verificación de la cadena en el servidor requiere sesión; el visitante dispone de la verificación local.
-- El video incluido es una animación ilustrativa de 16,5 s, sin audio ni locución, hecha con datos simulados; no es un video institucional.
-- F1, F2 y F3 de la auditoría siguen pendientes en el servidor.
+- La versión inglesa del video es una animación ilustrativa (sin grabación de la aplicación, cuya interfaz está en español); la española incluye la grabación real. Solo el Hero cambia de idioma; el resto de la plataforma sigue en español.
+- El video de Inicio es una grabación real de la aplicación con datos simulados, precedida de una animación ilustrativa y narrada con voz sintética; no es un video institucional ni muestra imágenes de campo.
+- F1, F2 y F3 de la auditoría están corregidos en el servidor (spec 11).
 
 | Requisito | Implementación | Prueba / Verificación |
 | --- | --- | --- |
 | `REQ-PUB-01` | `src/server/publicMode.ts`, `src/server/authApi.ts`, `src/server/authz.ts`, `src/core/permissions.ts` | `src/server/security.public.test.ts`, `src/server/netSecurity.test.ts` |
 | `REQ-PUB-02` | `src/server/publicMode.ts`, `src/server/publicDemo.ts`, `src/server/app.ts`, `server.ts`, `src/server/cliFlags.ts` | `src/server/security.public.test.ts` |
 | `REQ-PUB-03` | `src/ui/introVideo.ts`, `src/components/IntroSection.tsx`, `src/server/netSecurity.ts` | `src/ui/introVideo.test.ts`, `src/ui/views.test.tsx`, `src/server/netSecurity.test.ts` |
+| `REQ-PUB-05` | `src/ui/heroCopy.ts`, `src/ui/introVideo.ts`, `src/components/IntroSection.tsx`, `public/config/intro-video.json` | `src/ui/introVideo.test.ts`, `src/ui/views.test.tsx` |
 | `REQ-PUB-04` | `src/components/AppShell.tsx`, `src/components/HomeView.tsx`, `src/components/IntroSection.tsx`, `src/client/AuthGate.tsx`, `src/App.tsx` | `src/ui/views.test.tsx` |
