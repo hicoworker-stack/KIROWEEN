@@ -129,6 +129,8 @@ export interface AppOptions {
   setupEnabled?: boolean;
   /** MODO PÚBLICO: visitantes anónimos de solo lectura en rutas GET acotadas. Por defecto lo decide AQUA_PUBLIC_MODE. */
   publicMode?: boolean;
+  /** ACCESO LIBRE: sesión automática como `invitado` (OPERATOR) sin pantalla de acceso. Por defecto lo decide AQUA_OPEN_ACCESS=1. */
+  openAccess?: boolean;
 }
 
 export interface AppHandle {
@@ -174,6 +176,7 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
   const persistence = new PersistenceTracker(statePath);
   const keys = loadOrCreateSealKeys({ dir: path.dirname(statePath), envPem: env.AQUA_SEAL_PRIVATE_KEY_PEM });
   const publicMode = options.publicMode ?? isPublicModeEnabled(env);
+  const openAccess = options.openAccess ?? env.AQUA_OPEN_ACCESS === '1';
   // En modo público JAMÁS se aceptan lecturas como datos de campo: todo lo que entre es sintético.
   const trustSyntheticFlag = !publicMode && env.AQUA_FIELD_DATA === '1';
 
@@ -193,7 +196,7 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
   const opTokens = new OperationTokens(options.now);
   // El modo público nunca ofrece el asistente de primer administrador: quien explora no debe ver pedir un código de administrador.
   const setupEnabled = options.setupEnabled ?? (!publicMode && (!securityCfg.production || env.AQUA_SETUP_ENABLED === '1'));
-  const security: SecurityDeps = { cfg: securityCfg, store: authStore, audit, limiter, opTokens, setupEnabled, sessionMaxAgeSec: Math.floor(sessionAbsoluteMs / 1000), publicMode };
+  const security: SecurityDeps = { cfg: securityCfg, store: authStore, audit, limiter, opTokens, setupEnabled, sessionMaxAgeSec: Math.floor(sessionAbsoluteMs / 1000), publicMode, openAccess };
   installSecurityPipeline(app, security);
   const setupCode = setupEnabled && !authStore.hasUsers() ? await authStore.issueSetupCode() : null;
 

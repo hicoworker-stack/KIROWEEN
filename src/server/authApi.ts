@@ -32,7 +32,11 @@ export interface SecurityDeps {
   processSecret?: Buffer;
   /** MODO PÚBLICO (AQUA_PUBLIC_MODE): admite visitantes anónimos solo en las rutas GET de publicMode.ts. */
   publicMode?: boolean;
+  /** ACCESO LIBRE (AQUA_OPEN_ACCESS=1): quien abre la aplicación recibe automáticamente una sesión de la cuenta `invitado` (OPERATOR), sin pantalla de acceso. */
+  openAccess?: boolean;
 }
+
+export const GUEST_USERNAME = 'invitado';
 
 const UNSAFE = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const sidName = (secure: boolean) => (secure ? '__Host-aqua_sid' : 'aqua_sid');
@@ -165,6 +169,42 @@ export function installSecurityPipeline(app: Express, deps: SecurityDeps): void 
     next();
   });
 
+  // Acceso libre: sin sesión válida, el estado de autenticación entrega una sesión de la cuenta `invitado` (OPERATOR, no administradora).
+  let guestId: Promise<string> | null = null;
+  const ensureGuest = () =>
+    (guestId ??= (async () => {
+      let user = store.findByUsername(GUEST_USERNAME);
+      if (!user) {
+        const password = `${crypto.randomBytes(24).toString('base64url')}-Aa1!`;
+        await store.createUser({ username: GUEST_USERNAME, displayName: 'Invitado', role: 'OPERATOR', password, createdBy: 'open-access' });
+        user = store.findByUsername(GUEST_USERNAME);
+      }
+      if (!user) throw new Error('No se pudo preparar la cuenta de invitado.');
+      if (!user.active) await store.setActive(user.id, true);
+      return user.id;
+    })().catch((e) => {
+      guestId = null;
+      throw e;
+    }));
+  if (deps.openAccess) {
+    app.use('/api', (req, res, next) => {
+      const pathOnly = req.originalUrl.split('?')[0];
+      if (req.method !== 'GET' || (pathOnly !== '/api/auth/status' && pathOnly !== '/api/auth/csrf')) return next();
+      const secure = useSecureCookie(req, cfg);
+      const token = parseCookies(req.headers.cookie)[sidName(secure)];
+      if (token && store.resolveSession(token)) return next();
+      void (async () => {
+        const user = store.getUser(await ensureGuest());
+        if (!user) throw new Error('Cuenta de invitado no disponible.');
+        const { token: fresh } = await store.createSession(user.id, { ip: req.clientIp, userAgent: req.headers['user-agent'] });
+        setCookie(res, sidName(secure), fresh, { secure, maxAgeSec: deps.sessionMaxAgeSec });
+        // La sesión recién creada se resuelve en el middleware siguiente como si el navegador ya la enviara.
+        const others = (req.headers.cookie ?? '').split(';').map((c) => c.trim()).filter((c) => c && !c.startsWith(`${sidName(secure)}=`));
+        req.headers.cookie = [...others, `${sidName(secure)}=${fresh}`].join('; ');
+      })().then(() => next(), next);
+    });
+  }
+
   // Sesión, CSRF y cupos.
   app.use('/api', (req, res, next) => {
     const secure = useSecureCookie(req, cfg);
@@ -253,6 +293,7 @@ export function installSecurityPipeline(app: Express, deps: SecurityDeps): void 
       user: req.auth ? userView(req.auth.user) : null,
       csrfToken: req.auth ? req.auth.csrf : pre!.token,
       publicMode: Boolean(deps.publicMode),
+      openAccess: Boolean(deps.openAccess),
       setupAvailable: deps.setupEnabled && store.setupAvailable(),
       needsAdmin: !store.hasUsers(),
     });

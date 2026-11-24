@@ -48,7 +48,7 @@ export default function App() {
   return <AuthGate>{(session) => <AppInner key={session.user.id} user={session.user} onLogout={session.logout} />}</AuthGate>;
 }
 
-function AppInner({ user, onLogout }: { user: SessionUser; onLogout: () => void }) {
+function AppInner({ user, onLogout }: { user: SessionUser; onLogout?: () => void }) {
   const initial = typeof window !== 'undefined' ? parseHash(window.location.hash) : { view: 'home' as MainView, tab: 'sensores' as AdvancedTab };
   const [view, setView] = useState<MainView>(initial.view);
   const [advancedTab, setAdvancedTab] = useState<AdvancedTab>(initial.tab);
@@ -117,10 +117,12 @@ function AppInner({ user, onLogout }: { user: SessionUser; onLogout: () => void 
   }, []);
 
   // Al entrar o salir de una sesión se vuelve a Inicio (la aplicación se monta de nuevo leyendo la URL).
-  const handleLogout = () => {
-    if (typeof window !== 'undefined') window.location.hash = hashFor('home');
-    onLogout();
-  };
+  const handleLogout = onLogout
+    ? () => {
+        if (typeof window !== 'undefined') window.location.hash = hashFor('home');
+        onLogout();
+      }
+    : undefined;
 
   const openIncident = (id: string) => {
     setSelectedIncidentId(id);

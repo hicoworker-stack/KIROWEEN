@@ -21,6 +21,8 @@ export interface AuthStatus {
   needsAdmin: boolean;
   /** MODO PÚBLICO: el servidor admite visitantes anónimos de solo lectura. */
   publicMode?: boolean;
+  /** ACCESO LIBRE: el servidor abre una sesión de invitado automáticamente; no hay pantalla de acceso. */
+  openAccess?: boolean;
 }
 
 let csrfToken = '';

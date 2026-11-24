@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AuthStatus, fetchAuthStatus, loginRequest, logoutRequest, SessionUser, setupRequest, setUnauthorizedHandler } from './api';
 import { setPasswordPrompter } from './adminFetch';
 
@@ -9,7 +9,7 @@ import { setPasswordPrompter } from './adminFetch';
 export interface Session {
   user: SessionUser;
   /** Con sesión: cierra la sesión. Como visitante del modo público: abre el inicio de sesión. */
-  logout: () => void;
+  logout?: () => void;
   /** Visitante anónimo del modo público (solo lectura, sin cuenta). */
   visitor: boolean;
 }
@@ -147,16 +147,31 @@ export function AuthGate({ children }: { children: (session: Session) => React.R
 
   const refresh = useCallback(async () => {
     try {
-      setStatus(await fetchAuthStatus());
+      let s = await fetchAuthStatus();
+      // Acceso libre: si la sesión de invitado caducó, el servidor abre otra al consultar el estado.
+      if (s.openAccess && !s.authenticated) s = await fetchAuthStatus();
+      setStatus(s);
       setFailed(false);
     } catch {
       setFailed(true);
     }
   }, []);
 
+  // Acceso libre: si la sesión de invitado caduca (401), se pide otra, con un tope de intentos para no entrar en bucle.
+  const retries = useRef(0);
+  useEffect(() => {
+    if (!status?.openAccess) return;
+    if (status.authenticated) {
+      retries.current = 0;
+    } else if (retries.current < 3) {
+      retries.current += 1;
+      void refresh();
+    }
+  }, [status, refresh]);
   useEffect(() => {
     void refresh();
     setUnauthorizedHandler(() => setStatus((s) => (s && s.authenticated ? { ...s, authenticated: false, user: null } : s)));
+    // (con acceso libre, el efecto de abajo vuelve a pedir la sesión de invitado)
     setPasswordPrompter((message) => new Promise((resolve) => setDialog({ message, resolve })));
     return () => {
       setUnauthorizedHandler(null);
@@ -180,6 +195,18 @@ export function AuthGate({ children }: { children: (session: Session) => React.R
     );
   }
   if (!status) return <Card title="Aqua Sentinel"><p className="text-sm text-slate-400">Comprobando sesión…</p></Card>;
+  if (status.openAccess && (!status.authenticated || !status.user)) {
+    return (
+      <Card title="Aqua Sentinel">
+        <p className="text-sm text-slate-400">{retries.current >= 3 ? 'No se pudo abrir la sesión de invitado.' : 'Abriendo…'}</p>
+        {retries.current >= 3 && (
+          <button className={button} onClick={() => { retries.current = 0; void refresh(); }}>
+            Reintentar
+          </button>
+        )}
+      </Card>
+    );
+  }
   if (!status.authenticated || !status.user) {
     // MODO PÚBLICO: se entra directamente como visitante (solo lectura). El inicio de sesión sigue disponible desde el menú.
     if (status.publicMode && !wantLogin) return <>{children({ user: VISITOR_USER, visitor: true, logout: () => setWantLogin(true) })}</>;
@@ -197,7 +224,7 @@ export function AuthGate({ children }: { children: (session: Session) => React.R
   }
   return (
     <>
-      {children({ user: status.user, visitor: false, logout: () => void logout() })}
+      {children({ user: status.user, visitor: false, logout: status.openAccess ? undefined : () => void logout() })}
       {dialog && (
         <PasswordDialog
           message={dialog.message}

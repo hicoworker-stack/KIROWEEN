@@ -171,6 +171,8 @@ export async function startServer(
         GEMINI_API_KEY: options.fakeGemini ? 'AIzaSyTEST_FAKE_KEY_0000000000000000' : '',
         FAKE_GEMINI_MODE_FILE: modeFile,
         FAKE_GEMINI_LOG: geminiLog,
+        // Las pruebas e2e verifican el modo con inicio de sesión; server.ts activa el acceso libre por defecto.
+        AQUA_OPEN_ACCESS: '0',
         ...envNow,
       },
       stdio: ['ignore', 'pipe', 'pipe'],

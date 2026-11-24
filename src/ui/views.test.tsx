@@ -252,13 +252,28 @@ test('REQ-PUB-04: «Cómo funciona» muestra el flujo CAPTURA → DETECCIÓN →
   assert.doesNotMatch(t, /garantiza|100 ?%|infalible/i, 'sin promesas que el sistema no puede cumplir');
 });
 
-test('REQ-PUB-04: un usuario con sesión conserva su vista operativa, y la presentación queda plegada al final', () => {
+test('REQ-PUB-04: Inicio abre con la landing para cualquier rol y deja el estado operativo de la red debajo', () => {
   const h = html(<HomeView {...homeProps()} />);
-  assert.match(h, /<h1[^>]*id="home-status"/, 'su h1 es el estado de la red');
-  assert.doesNotMatch(h, /id="hero-title"/);
-  assert.doesNotMatch(text(h), /Empezar a explorar|Estado de la red ahora/);
-  assert.match(text(h), /Qué es Aqua Sentinel y cómo funciona \(video explicativo\)/);
-  assert.ok(h.indexOf('<details') > h.indexOf('home-zones'), 'después del estado por zona');
+  assert.equal((h.match(/<h1/g) ?? []).length, 1, 'una sola h1 en la página');
+  assert.match(h, /<h1[^>]*id="hero-title"/);
+  assert.match(h, /<h2[^>]*id="home-status"/);
+  assert.ok(h.indexOf('hero-title') < h.indexOf('how-title') && h.indexOf('how-title') < h.indexOf('home-status'), 'hero, cómo funciona y luego el estado');
+  assert.match(text(h), /Estado de la red ahora/);
+});
+
+test('Inicio: la simulación 3D va justo debajo del Hero, rotulada como simulada y con sus pasos y controles accesibles', () => {
+  const h = html(<HomeView {...homeProps()} />);
+  const hero = h.indexOf('hero-title');
+  const sim = h.indexOf('id="sim3d-title"');
+  const how = h.indexOf('how-title');
+  assert.ok(hero > 0 && sim > hero && how > sim, `orden: hero ${hero}, simulación ${sim}, cómo funciona ${how}`);
+  const t = text(h);
+  for (const label of ['Operación normal', 'Aparece una fuga', 'Detección', 'Reparación', 'Verificación']) assert.match(t, new RegExp(label));
+  assert.match(t, /Balance de agua del tramo P-05/);
+  assert.match(h, /aria-label="Girar a la izquierda"/);
+  assert.match(h, /aria-label="Ver bajo tierra"/);
+  assert.match(h, /type="range"/);
+  assert.match(t, /Cargando la maqueta 3D/, 'three.js no se carga en el primer render');
 });
 
 test('REQ-PUB-03: sin video publicado, la portada muestra «Video explicativo próximamente» y el botón de reproducir está desactivado (no se simula nada)', () => {

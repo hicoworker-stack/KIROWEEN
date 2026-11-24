@@ -20,6 +20,8 @@ process.on('unhandledRejection', (reason) => {
 });
 
 async function bootstrapServer() {
+  // Acceso libre por defecto: sin pantalla de inicio de sesión. AQUA_OPEN_ACCESS=0 vuelve a exigir cuenta.
+  process.env.AQUA_OPEN_ACCESS ??= '1';
   const publicMode = process.env.AQUA_PUBLIC_MODE === '1' || process.env.AQUA_PUBLIC_MODE === 'true';
   if (publicMode && process.env.AQUA_PUBLIC_KEEP_STATE !== '1' && refreshStalePublicState(DEFAULT_STATE_PATH)) {
     console.log('[modo público] El estado de la demostración tenía más de 12 h: se descartó para sembrarlo con datos frescos (AQUA_PUBLIC_KEEP_STATE=1 lo evita).');

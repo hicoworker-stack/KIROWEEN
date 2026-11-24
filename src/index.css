@@ -140,7 +140,8 @@
   will-change: transform, opacity;
 }
 @media (prefers-reduced-motion: reduce) {
-  .hero-bubble {
+  .hero-bubble,
+  .hero-bg-video {
     display: none;
   }
   .logo-float {

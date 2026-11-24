@@ -3,8 +3,8 @@ import { ArrowRight, ClipboardList, FilePlus2, Map as MapIcon, Play, RefreshCw }
 import { can, Role } from '../core/permissions';
 import { AnomalyEvent, AquaBrainDiagnosis, NetworkNode, SmartWorkOrder, TelemetryReading } from '../core/types';
 import { HEALTH_META, MainView, networkSummary, nextActions, nodeHealth, timeAgo } from '../ui/vocab';
-import { HowItWorks, IntroSection, IntroVideo } from './IntroSection';
-import { Button, Disclosure, HEALTH_TONE, Notice, ProvenanceBadge, Skeleton, StatusPill, TONE, toneIcon } from './ui';
+import { IntroSection } from './IntroSection';
+import { Button, HEALTH_TONE, Notice, ProvenanceBadge, Skeleton, StatusPill, TONE, toneIcon } from './ui';
 
 export interface HomeViewProps {
   nodes: NetworkNode[];
@@ -51,19 +51,15 @@ export const HomeView: React.FC<HomeViewProps> = (p) => {
   const tone = HEALTH_TONE[summary.status];
   const Icon = toneIcon(tone);
   const canReport = can(p.role, 'offline:sync');
-  // Los visitantes del modo público ven primero la presentación del producto; quien trabaja con sesión, su estado operativo.
+  // Inicio abre con la presentación del producto (landing); el estado operativo de la red va debajo.
   const visitor = p.role === 'VISITOR';
-  const Headline = visitor ? 'h2' : 'h1';
+  const Headline = 'h2';
   const noAct = visitor ? 'Estás en el modo público: puedes consultarlo, no actuar.' : 'Con tu rol puedes consultarlo, pero no actuar.';
 
   return (
     <div className="space-y-10">
-      {visitor && (
-        <>
-          <IntroSection onNavigate={p.onNavigate} />
-          <h2 className="border-t border-line pt-10 font-display text-xl font-semibold text-ink">Estado de la red ahora</h2>
-        </>
-      )}
+      <IntroSection onNavigate={p.onNavigate} />
+      <h2 className="border-t border-line pt-10 font-display text-xl font-semibold text-ink">Estado de la red ahora</h2>
       {p.loadError && (
         <Notice tone="attention" title="No se pudo actualizar" live="assertive">
           Estás viendo los últimos datos recibidos ({timeAgo(p.lastUpdatedAt, now)}). {p.loadError}{' '}
@@ -195,12 +191,6 @@ export const HomeView: React.FC<HomeViewProps> = (p) => {
         </p>
       )}
 
-      {!visitor && (
-        <Disclosure summary="Qué es Aqua Sentinel y cómo funciona (video explicativo)">
-          <IntroVideo />
-          <HowItWorks />
-        </Disclosure>
-      )}
     </div>
   );
 };

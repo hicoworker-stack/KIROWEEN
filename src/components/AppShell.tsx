@@ -23,7 +23,7 @@ interface AppShellProps {
   badges: Partial<Record<Exclude<MainView, 'advanced'>, number>>;
   onNavigate: (v: MainView) => void;
   /** Con sesión: cerrar sesión. Como visitante del modo público: ir a iniciar sesión. */
-  onLogout: () => void;
+  onLogout?: () => void;
   /** Solo para pruebas: renderiza el menú abierto. */
   initialMenuOpen?: boolean;
   children: React.ReactNode;
@@ -156,7 +156,7 @@ export const AppShell: React.FC<AppShellProps> = ({ view, user, connection, allS
                 >
                   <div className="border-b border-line px-4 py-3">
                     <p className="truncate text-sm font-semibold text-ink">{user.displayName}</p>
-                    <p className="text-xs text-quiet">{visitor ? 'Modo público · solo lectura' : `@${user.username} · ${ROLE_LABEL[user.role]}`}</p>
+                    <p className="text-xs text-quiet">{visitor ? 'Modo público · solo lectura' : onLogout ? `@${user.username} · ${ROLE_LABEL[user.role]}` : 'Acceso libre'}</p>
                   </div>
                   {MAIN_NAV.map((n) => {
                     const Icon = ICON[n.id];
@@ -178,21 +178,23 @@ export const AppShell: React.FC<AppShellProps> = ({ view, user, connection, allS
                       <Settings2 className="h-4 w-4 shrink-0" aria-hidden="true" /> Herramientas avanzadas
                     </button>
                   </div>
-                  <div className="border-t border-line" role="none">
-                    <button
-                      role="menuitem"
-                      type="button"
-                      tabIndex={-1}
-                      onClick={() => {
-                        setOpen(false);
-                        onLogout();
-                      }}
-                      className={itemClass(false)}
-                    >
-                      {visitor ? <LogIn className="h-4 w-4 shrink-0" aria-hidden="true" /> : <LogOut className="h-4 w-4 shrink-0" aria-hidden="true" />}
-                      {visitor ? 'Iniciar sesión' : 'Cerrar sesión'}
-                    </button>
-                  </div>
+                  {onLogout && (
+                    <div className="border-t border-line" role="none">
+                      <button
+                        role="menuitem"
+                        type="button"
+                        tabIndex={-1}
+                        onClick={() => {
+                          setOpen(false);
+                          onLogout();
+                        }}
+                        className={itemClass(false)}
+                      >
+                        {visitor ? <LogIn className="h-4 w-4 shrink-0" aria-hidden="true" /> : <LogOut className="h-4 w-4 shrink-0" aria-hidden="true" />}
+                        {visitor ? 'Iniciar sesión' : 'Cerrar sesión'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
