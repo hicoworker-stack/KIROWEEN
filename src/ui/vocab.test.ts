@@ -12,11 +12,11 @@ import {
   networkSummary,
   nextActions,
   nodeHealth,
-  orderVerification,
-  parseHash,
+    parseHash,
   timeAgo,
   urgency,
 } from './vocab';
+import { repairView } from './repairView';
 
 test('REQ-UX-03: un nodo cuya última lectura es la "restaurada" al cerrar una orden queda pendiente de verificación, no estable (F2 visible)', () => {
   assert.equal(nodeHealth(node()), 'stable');
@@ -41,22 +41,21 @@ test('REQ-FIX-01 (F1): el canal «reporte» del servidor se muestra como declara
   assert.equal(channelLabel(declared, 'reporte'), 'Reporte de campo (declarado)');
 });
 
-test('REQ-UX-03: tras el cierre solo cuentan las mediciones POSTERIORES; la lectura restaurada y la línea base no verifican nada', () => {
+test('REQ-REP-05: tras el cierre solo cuentan las mediciones POSTERIORES; la lectura restaurada y la línea base no verifican nada', () => {
   const closed = order({ status: 'Cerrada', updatedAt: '2026-06-01T13:00:00.000Z' });
-  assert.deepEqual(orderVerification(order(), []), { state: 'not_closed' });
+  const n = node();
+  assert.equal(repairView(order(), n, []), null, 'una orden abierta no tiene verificación');
   const restoredOnly = [reading({ timestamp: '2026-06-01T13:00:01.000Z', source: 'restored' }), reading({ timestamp: '2026-06-01T13:05:00.000Z', source: 'baseline' })];
-  assert.equal(orderVerification(closed, restoredOnly).state, 'pending');
-  assert.equal(orderVerification(closed, undefined).state, 'pending');
+  assert.equal(repairView(closed, n, restoredOnly)!.outcome, 'PENDING');
+  assert.equal(repairView(closed, n, undefined)!.outcome, 'PENDING');
   const before = reading({ timestamp: '2026-06-01T12:59:00.000Z', source: 'api' });
-  assert.equal(orderVerification(closed, [before]).state, 'pending', 'una medición anterior al cierre no confirma la recuperación');
+  assert.equal(repairView(closed, n, [before])!.outcome, 'PENDING', 'una medición anterior al cierre no confirma la recuperación');
   const after = [reading({ id: 'R2', timestamp: '2026-06-01T13:10:00.000Z', source: 'api' }), reading({ id: 'R3', timestamp: '2026-06-01T13:20:00.000Z', source: 'csv' })];
-  const v = orderVerification(closed, [...restoredOnly, ...after]);
-  assert.equal(v.state, 'measured');
-  assert.equal(v.state === 'measured' && v.measuredAfter, 2);
-  assert.equal(v.state === 'measured' && v.last.id, 'R3');
-});
-
-test('REQ-UX-02: un reporte declarado por una persona NUNCA se presenta como lectura de sensores, aunque el servidor lo cuente así (F1 visible)', () => {
+  const v = repairView(closed, n, [...restoredOnly, ...after])!;
+  assert.equal(v.outcome, 'INCONCLUSIVE', 'dos mediciones normales no bastan para afirmar una recuperación');
+  assert.equal(v.measuredAfter, 2);
+  assert.equal(v.sealed, false);
+});test('REQ-UX-02: un reporte declarado por una persona NUNCA se presenta como lectura de sensores, aunque el servidor lo cuente así (F1 visible)', () => {
   const declared = anomaly({ origin: 'offline-report', synthetic: false });
   const r = evidenceBasisLabels(declared, diag({ evidenceBasis: ['sensores'] }));
   assert.deepEqual(r.labels, ['Reporte de campo (declarado)']);

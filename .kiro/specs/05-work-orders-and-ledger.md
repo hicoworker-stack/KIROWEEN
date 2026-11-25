@@ -22,7 +22,7 @@
 
 | Requisito | Implementación | Prueba / Verificación |
 | --- | --- | --- |
-| `REQ-WO-01` | `server.ts`, `src/components/WorkOrdersView.tsx` | `npm run lint` |
+| `REQ-WO-01` | `src/server/app.ts`, `src/components/WorkOrdersView.tsx` | `src/server/repairLoop.test.ts`, `src/server/integrityFixes.test.ts` |
 | `REQ-LED-01` | `src/core/cryptoLedger.ts`, `src/components/TrustLedgerView.tsx`, `server.ts` | `src/core/cryptoLedger.test.ts` |
-| `REQ-OFF-01` | `src/core/offlineStore.ts`, `src/components/IntegrationsAndOfflineView.tsx`, `src/App.tsx`, `server.ts` | `npm run lint` |
+| `REQ-OFF-01` | `src/core/offlineStore.ts`, `src/components/IntegrationsAndOfflineView.tsx`, `src/App.tsx`, `src/server/app.ts` | `src/ui/traceability.test.tsx`, `src/server/integrityFixes.test.ts` |
 

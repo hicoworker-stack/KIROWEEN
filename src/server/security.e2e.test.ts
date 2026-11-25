@@ -187,10 +187,19 @@ test('REQ-AUD-02: ni los archivos de datos, ni los logs, ni las respuestas conti
     await new Session(srv.base).login(TEST_USERS.viewer.username, 'Clave-Incorrecta-9999!');
     const responses = bodies.join('\n');
     const logs = srv.logs();
-    const files = fs
-      .readdirSync(srv.dir)
-      .filter((f) => fs.statSync(path.join(srv.dir, f)).isFile() && !/seal-key\.pem$|\.bak$/.test(f))
-      .map((f) => fs.readFileSync(path.join(srv.dir, f), 'utf8'));
+    // El servidor escribe de forma atómica (archivo .tmp + renombrado): un temporal puede desaparecer entre listar y leer.
+    // Un archivo que ya no existe no puede contener secretos; cualquier otro error de lectura sí debe fallar la prueba.
+    const readPersisted = (f: string): string | null => {
+      try {
+        const full = path.join(srv.dir, f);
+        if (!fs.statSync(full).isFile() || /seal-key\.pem$|\.bak$/.test(f)) return null;
+        return fs.readFileSync(full, 'utf8');
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+        throw err;
+      }
+    };
+    const files = fs.readdirSync(srv.dir).map(readPersisted).filter((c): c is string => c !== null);
     const privatePem = fs.readFileSync(path.join(srv.dir, 'seal-key.pem'), 'utf8');
     const secrets = ['AIzaSyTEST_FAKE_KEY_0000000000000000', ...Object.values(TEST_USERS).map((u) => u.password), 'Clave-Incorrecta-9999!', 'BEGIN PRIVATE KEY'];
     for (const secret of secrets) {

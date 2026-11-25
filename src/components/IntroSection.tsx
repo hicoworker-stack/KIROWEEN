@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowRight, Clapperboard, Play } from 'lucide-react';
-import { HERO_COPY, HERO_LANGS, HeroLang, DEFAULT_HERO_LANG } from '../ui/heroCopy';
+import { HERO_COPY, HeroLang } from '../ui/heroCopy';
+import { t, useLang } from '../ui/i18n';
 import { DEFAULT_CONFIG_URL, IntroVideoConfig, parseVideoConfigFor, resolveVideoState, VideoState } from '../ui/introVideo';
 import { Button } from './ui';
 import { Network3DSimulation } from './Network3DSimulation';
@@ -19,25 +20,7 @@ const BUBBLES = [
   { x: '91%', s: 11, delay: '5s', dur: '22s' },
 ].map((b) => ({ ...b, s: `${b.s}px` }));
 
-/** Selector de idioma del Hero: dos botones con estado pulsado, accesible con teclado. */
-export const HeroLanguageSwitch: React.FC<{ lang: HeroLang; onChange: (lang: HeroLang) => void }> = ({ lang, onChange }) => (
-  <div role="group" aria-label={`${HERO_COPY.en.switchLabel} / ${HERO_COPY.es.switchLabel}`} className="inline-flex shrink-0 rounded-full border border-line bg-canvas/60 p-1 backdrop-blur-sm">
-    {HERO_LANGS.map((l) => (
-      <button
-        key={l}
-        type="button"
-        lang={l}
-        aria-pressed={lang === l}
-        onClick={() => lang !== l && onChange(l)}
-        className={`min-h-10 cursor-pointer rounded-full px-4 text-sm font-medium transition-colors ${lang === l ? 'bg-accent text-[#041018]' : 'text-soft hover:text-ink'}`}
-      >
-        {HERO_COPY[l].langName}
-      </button>
-    ))}
-  </div>
-);
-
-export const Hero: React.FC<{ as?: 'h1' | 'h2'; children?: React.ReactNode; lang?: HeroLang; onLangChange?: (lang: HeroLang) => void }> = ({ as: Heading = 'h1', children, lang = 'es', onLangChange }) => (
+export const Hero: React.FC<{ as?: 'h1' | 'h2'; children?: React.ReactNode; lang?: HeroLang }> = ({ as: Heading = 'h1', children, lang = 'es' }) => (
   <section aria-labelledby="hero-title" className="relative isolate overflow-hidden rounded-2xl bg-surface bg-[url('/images/hero-network.svg')] bg-cover bg-center">
     {/* Video de fondo decorativo: sin sonido, en bucle y sin controles. Si no carga, queda la imagen de la red. */}
     <video aria-hidden="true" tabIndex={-1} className="hero-bg-video pointer-events-none absolute inset-0 -z-20 h-full w-full object-cover" src="/videos/hero-fondo.mp4" poster="/images/hero-network.svg" autoPlay muted loop playsInline preload="auto" disablePictureInPicture />
@@ -53,7 +36,6 @@ export const Hero: React.FC<{ as?: 'h1' | 'h2'; children?: React.ReactNode; lang
         <p className="flex items-center gap-2.5 font-display text-base font-semibold tracking-tight text-accent">
           Aqua Sentinel
         </p>
-        {onLangChange && <HeroLanguageSwitch lang={lang} onChange={onLangChange} />}
       </div>
       <Heading id="hero-title" className="font-display text-3xl font-semibold leading-tight text-ink sm:text-4xl xl:text-5xl">
         {HERO_COPY[lang].title}
@@ -369,26 +351,49 @@ const SCENES: Record<string, React.ReactNode> = {
   ),
 };
 
-export const HOW_IT_WORKS: Array<{ id: keyof typeof SCENES; label: string; title: string; text: string }> = [
-  { id: 'captura', label: 'CAPTURA', title: 'Los datos llegan de todas partes', text: 'Sensores de presión y caudal, fotos y reportes de campo. Sin señal, el reporte se guarda y se envía después.' },
-  { id: 'deteccion', label: 'DETECCIÓN', title: 'Lo anormal salta a la vista', text: 'Reglas físicas y el balance de agua comparan cada lectura con lo esperado y marcan lo que se sale.' },
-  { id: 'analisis', label: 'ANÁLISIS', title: 'Se cruza la evidencia', text: 'Lecturas, fotos y reportes se contrastan con el modelo hidráulico y se dice qué tan respaldada está la causa.' },
-  { id: 'accion', label: 'ACCIÓN', title: 'Una persona decide', text: 'Se acepta o se cambia la recomendación y se crea la orden de trabajo, con tareas, responsable y foto.' },
-  { id: 'verificacion', label: 'VERIFICACIÓN', title: 'Todo queda comprobado', text: 'Cada decisión se sella en un registro encadenado. Solo hay recuperación cuando llega una medición posterior.' },
-];
-
-export const HowItWorks: React.FC = () => (
+export const HOW_IT_WORKS: Array<{ id: keyof typeof SCENES; readonly label: string; readonly title: string; readonly text: string }> = [
+  {
+    id: 'captura',
+    get label() { return t('CAPTURA', 'CAPTURE'); },
+    get title() { return t('Los datos llegan de todas partes', 'Data arrives from everywhere'); },
+    get text() { return t('Sensores de presión y caudal, fotos y reportes de campo. Sin señal, el reporte se guarda y se envía después.', 'Pressure and flow sensors, photos and field reports. With no signal, the report is saved and sent later.'); },
+  },
+  {
+    id: 'deteccion',
+    get label() { return t('DETECCIÓN', 'DETECTION'); },
+    get title() { return t('Lo anormal salta a la vista', 'The abnormal stands out'); },
+    get text() { return t('Reglas físicas y el balance de agua comparan cada lectura con lo esperado y marcan lo que se sale.', 'Physical rules and the water balance compare every reading with what is expected and flag what falls outside.'); },
+  },
+  {
+    id: 'analisis',
+    get label() { return t('ANÁLISIS', 'ANALYSIS'); },
+    get title() { return t('Se cruza la evidencia', 'Evidence is cross-checked'); },
+    get text() { return t('Lecturas, fotos y reportes se contrastan con el modelo hidráulico y se dice qué tan respaldada está la causa.', 'Readings, photos and reports are checked against the hydraulic model, and the support behind the cause is stated.'); },
+  },
+  {
+    id: 'accion',
+    get label() { return t('ACCIÓN', 'ACTION'); },
+    get title() { return t('Una persona decide', 'A person decides'); },
+    get text() { return t('Se acepta o se cambia la recomendación y se crea la orden de trabajo, con tareas, responsable y foto.', 'The recommendation is accepted or changed and the work order is created, with tasks, an owner and a photo.'); },
+  },
+  {
+    id: 'verificacion',
+    get label() { return t('VERIFICACIÓN', 'VERIFICATION'); },
+    get title() { return t('Todo queda comprobado', 'Everything is proven'); },
+    get text() { return t('Cada decisión se sella en un registro encadenado. Solo hay recuperación cuando llega una medición posterior.', 'Every decision is sealed in a chained record. Recovery is only declared when a later measurement arrives.'); },
+  },
+];export const HowItWorks: React.FC = () => (
   <section aria-labelledby="how-title" className="space-y-5">
     <div className="space-y-1">
       <h2 id="how-title" className="font-display text-xl font-semibold text-ink">
-        Cómo funciona
+        {t('Cómo funciona', 'How it works')}
       </h2>
-      <p className="text-sm text-soft">De un dato suelto a una reparación comprobada, en cinco pasos.</p>
+      <p className="text-sm text-soft">{t('De un dato suelto a una reparación comprobada, en cinco pasos.', 'From a loose data point to a proven repair, in five steps.')}</p>
     </div>
     <ol className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
       {HOW_IT_WORKS.map((s, i) => (
         <li key={s.id} className={`flex flex-col gap-3 rounded-xl border border-line bg-surface/60 p-4 ${i < 3 ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
-          <svg viewBox="0 0 240 150" className="mx-auto h-auto w-full max-w-[16rem]" role="img" aria-label={`Boceto: ${s.label.toLowerCase()}`}>
+          <svg viewBox="0 0 240 150" className="mx-auto h-auto w-full max-w-[16rem]" role="img" aria-label={t(`Boceto: ${s.label.toLowerCase()}`, `Sketch: ${s.label.toLowerCase()}`)}>
             {SCENES[s.id]}
           </svg>
           <div className="space-y-1">
@@ -410,35 +415,30 @@ export const ExploreAccess: React.FC<{ onNavigate: (view: 'map' | 'incidents' | 
   <section aria-labelledby="explore-title" className="flex flex-wrap items-center justify-between gap-6 border-t border-line pt-8">
     <div className="max-w-xl space-y-1.5">
       <h2 id="explore-title" className="font-display text-xl font-semibold text-ink">
-        Explora la plataforma
+        {t('Explora la plataforma', 'Explore the platform')}
       </h2>
-      <p className="text-base leading-relaxed text-soft">No necesitas cuenta. Recorre el mapa, un incidente real de la demostración y su orden de trabajo. Todo lo que ves es simulado.</p>
+      <p className="text-base leading-relaxed text-soft">{t('Recorre el mapa, un incidente de la demostración y su orden de trabajo. Todo lo que ves es simulado.', 'Walk through the map, a demonstration incident and its work order. Everything you see is simulated.')}</p>
     </div>
     <div className="flex flex-wrap items-center gap-3">
-      <Button variant="primary" onClick={() => onNavigate('map')} icon={<ArrowRight className="h-4 w-4" />}>
-        Empezar a explorar
+      <Button variant="primary" onClick={() => onNavigate('incidents')} icon={<ArrowRight className="h-4 w-4" />}>
+        {t('Ver el incidente', 'See the incident')}
       </Button>
-      <Button variant="ghost" onClick={() => onNavigate('incidents')}>
-        Incidentes
+      <Button variant="ghost" onClick={() => onNavigate('map')}>
+        {t('Mapa', 'Map')}
       </Button>
       <Button variant="ghost" onClick={() => onNavigate('orders')}>
-        Órdenes de trabajo
+        {t('Órdenes de trabajo', 'Work orders')}
       </Button>
     </div>
   </section>
 );
 
-/** Introducción completa: encabezado (con selector de idioma y su video), cómo funciona y acceso. */
-export const IntroSection: React.FC<{ onNavigate: (view: 'map' | 'incidents' | 'orders') => void; videoState?: VideoState; initialLang?: HeroLang }> = ({
-  onNavigate,
-  videoState,
-  initialLang = DEFAULT_HERO_LANG,
-}) => {
-  // El idioma vive solo en memoria: el modo público no guarda nada en el navegador del visitante.
-  const [lang, setLang] = useState<HeroLang>(initialLang);
+/** Introducción completa: encabezado con su video, la simulación 3D, cómo funciona y acceso. El idioma lo elige la cabecera de la aplicación. */
+export const IntroSection: React.FC<{ onNavigate: (view: 'map' | 'incidents' | 'orders') => void; videoState?: VideoState }> = ({ onNavigate, videoState }) => {
+  const lang: HeroLang = useLang();
   return (
     <div className="space-y-12">
-      <Hero lang={lang} onLangChange={setLang}>
+      <Hero lang={lang}>
         <IntroVideo forceState={videoState} lang={lang} />
       </Hero>
       <Network3DSimulation />

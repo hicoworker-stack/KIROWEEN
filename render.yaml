@@ -13,3 +13,6 @@ services:
         value: aqua-sentinel.onrender.com
       - key: AQUA_ALLOWED_ORIGINS
         value: https://aqua-sentinel.onrender.com
+      # Cuenta de evaluación (rol OPERATOR, usuario judge). Se define en el panel de Render, nunca aquí (sync: false).
+      - key: AQUA_JUDGE_PASSWORD
+        sync: false

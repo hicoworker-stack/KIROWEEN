@@ -1,176 +1,162 @@
 # Aqua Sentinel
 
-**Monitoreo, diagnóstico y trazabilidad para sistemas comunitarios de agua.** Prototipo de hackathon (Kiroween 2026). Todos los datos de la red *San Cristóbal de las Aguas* son **sintéticos de demostración**.
+**Operational intelligence for community water systems: from a sensor anomaly to a repair that is proven, not assumed.**
 
-`Dato → Anomalía → Correlación → Diagnóstico → Decisión → Orden de Trabajo → Expediente sellado`
+Kiroween 2026 · Frankenstein category · MIT license · every number in the demo is **synthetic** (network *San Cristóbal de las Aguas*)
 
-**Entrega para el concurso**: resumen, ensamblaje, uso de Kiro, guion de la demo y cómo publicar la URL pública en [docs/ENTREGA.md](docs/ENTREGA.md).
+```
+TELEMETRY → ANOMALY → DIAGNOSIS → DECISION → WORK ORDER → VERIFICATION → VERIFIABLE EVIDENCE
+```
 
-## Arquitectura
+> **The AI proposes, the physics checks it, the evidence proves it.**
 
-| Capa | Módulos | Notas |
+## The idea
+
+Community water systems lose water to leaks nobody sees, and when something is repaired nobody checks with data that it worked. Most tools stop at the alert. Aqua Sentinel connects the hydraulic diagnosis to the intervention and then **refuses to say a repair worked until later measurements say so**:
+
+| After the work order is closed… | The engine says | Sealed in the Trust Ledger |
 | --- | --- | --- |
-| Núcleo puro | `src/core/` | Reglas deterministas, validación de telemetría, diagnóstico hidráulico (balance de masa con incertidumbre), concordancia de evidencias, ledger SHA-256, expediente. Sin dependencias de servidor, simulación ni React. |
-| Simulación | `src/sim/` | Solver hidráulico (Hazen-Williams), generador de escenarios con semilla y evaluación Monte Carlo. Nunca lo importa el código de detección. |
-| Servidor | `server.ts`, `src/server/` | Express 4. Las mutaciones pasan por una exclusión mutua FIFO; las llamadas a IA se hacen fuera del cerrojo con control de época. |
-| Cliente | `src/App.tsx`, `src/components/` | React 19 + Vite. `ErrorBoundary` evita la pantalla en blanco. |
-| Kiro | `.kiro/specs`, `.kiro/steering`, `.kiro/hooks` | Requisitos `REQ-*` trazados a código y pruebas; `npm run verify:kiro` lo comprueba. |
+| no new measurement yet | `PENDING` | no |
+| 1–2 normal measurements | `INCONCLUSIVE` (not enough) | no |
+| 3 consecutive normal measurements **and** the water balance no longer shows a leak | `VERIFIED` | yes, with the readings that support it |
+| 2 consecutive anomalous measurements, or the balance still shows a leak | `REOPENED` | yes |
 
-## Ejecución y pruebas
+The verdict is a pure function (`src/core/repairVerification.ts`). The exported dossier carries the readings that justify it, and the independent verifier **recomputes** it: a dossier whose hash chain is perfectly valid but whose verdict does not follow from its own evidence is rejected.
+
+The engine also refuses to over-claim during diagnosis. Small leaks are `no_anomaly`; medium leaks are a `flow_anomaly` that the engine explicitly does **not** call a leak because pressure cannot discriminate; only a leak whose pressure response matches the physics is `localized_leak`. The 3D model on the home page shows exactly this, and moving the leak-size slider shows where the engine says yes, maybe, or no.
+
+## Try it in 30 seconds (offline, no API keys)
+
+Requires Node ≥ 22.
 
 ```bash
-npm ci               # instala desde package-lock.json (lockfile canónico)
-npm test             # todas las pruebas: tsx --test "src/**/*.test.ts"
+npm ci
+npm run demo:loop        # full cycle, three outcomes, real engines, no network
+npm run dev -- --open    # the app, with an automatic guest session (local development only)
+```
+
+`npm run demo:loop` starts a real server in a temporary directory and drives it through the real API (sessions, CSRF and permissions included): detection → hydraulic diagnosis → human decision → work order → sealed closing photo → simulated post-closure measurements → verdict → cryptographic dossier, verified outside the server. It runs the same cycle three times (`VERIFIED`, `REOPENED`, `INCONCLUSIVE`) and exits non-zero if any step fails. Nothing is prefabricated: the measurements come from the hydraulic solver and the verdict from the same engine the app uses.
+
+Other commands:
+
+```bash
+npm test             # all tests (node:test + property-based tests with fast-check)
 npm run lint         # tsc --noEmit
-npm run build        # vite build
-npm run verify:kiro  # trazabilidad REQ-*, pruebas, tipos y build
-npm run dev          # Express + Vite en el puerto 3000
-npm start            # producción (tras build)
+npm run build        # production bundle (three.js is lazy-loaded in its own chunk)
+npm run verify:kiro  # strict spec → code → test traceability, then tests, types and build
+npm run public       # read-only public demo (see "Public mode")
 ```
 
-Requiere Node >= 22.
+## What is real and what is simulated
 
+| Real (and tested) | Simulated or unvalidated |
+| --- | --- |
+| Deterministic rules engine; hydraulic mass balance with propagated uncertainty and a persistence requirement | **All network data is synthetic.** A seeded generator on top of a Hazen-Williams solver |
+| Hydraulic solver cross-checked against **EPANET 2.2** (`epanet-js`, 8 cases, max difference 0.0027 bar and 0.0007 L/s) | The solver validates the physics, not the existence of a real network |
+| Repair verification with evidence cut-off, streaks and recomputable verdicts | Post-closure measurements in the demo are generated by the solver and labelled as simulated |
+| SHA-256 Trust Ledger, Ed25519 signed receipts and anchors, dossier verifier | The ledger detects tampering by third parties; it cannot make the operator's own server immutable |
+| Authentication, RBAC, CSRF, rate limits, audit log, offline report queue with idempotent sync | AWS adapters (S3, Lambda, DynamoDB) are **simulated** and Bedrock is not configured: this project does not use AWS |
+| | Gemini (text and vision) is optional and **not validated with real credentials**. Without it, photos stay "not analyzed" and diagnoses use the deterministic adapter, and the UI says so |
 
-## Modo público
+No field data, pilots, users or water savings are claimed anywhere. See "Known limits".
 
-Pensado para presentar Aqua Sentinel: cualquiera abre la URL y explora la plataforma **sin iniciar sesión, sin registrarse y sin código de administrador**. No es una versión sin seguridad: es un modo explícito, de solo lectura y reversible.
+## How it works
 
-```bash
-npm run public        # equivale a AQUA_PUBLIC_MODE=1 npm run dev, con el estado aislado en data/public-demo/
-```
-
-Al arrancar por primera vez se siembra solo una demostración con datos **simulados**: un incidente (fuga en la troncal), su diagnóstico, una foto de ejemplo y una orden de trabajo en curso. El visitante navega por Inicio, Mapa, Incidentes y Órdenes de trabajo, y puede abrir las herramientas avanzadas. No puede modificar nada.
-
-### Qué rutas son públicas
-
-Un visitante sin sesión solo supera estas rutas. Todas son de lectura (`GET`):
-
-| Ruta | Para qué | Notas |
+| Layer | Modules | Notes |
 | --- | --- | --- |
-| `/api/state` | Estado de la demostración | Versión redactada: sin rutas del servidor ni mensajes internos |
-| `/api/events` | Actualizaciones en vivo | Mismo contenido redactado; máximo 20 conexiones por IP |
-| `/api/evidence/:sha256` | Fotos de la demostración | Solo con un SHA-256 exacto de 64 caracteres hexadecimales |
+| Pure core | `src/core/` | Rules, telemetry validation, hydraulic diagnosis, evidence concordance, **repair verification**, ledger, dossier. No server, simulation or React imports (enforced by `src/architecture.test.ts`) |
+| Simulation | `src/sim/` | Hazen-Williams solver, seeded scenario generator, Monte Carlo evaluation with known ground truth. The detection code never imports it |
+| Server | `src/server/`, `server.ts` | Express 4. Mutations go through a FIFO mutex; AI calls run outside it with an epoch guard |
+| Client | `src/App.tsx`, `src/components/` | React 19 + Vite. `ErrorBoundary` prevents a blank screen |
+| 3D model | `src/components/sim3d/`, `src/ui/sim3dModel.ts`, `src/server/leakPreview.ts` | three.js, lazy-loaded. **Contains no physics or thresholds**: it renders the result of `GET /api/preview/leak`, which runs solver → hydraulic diagnosis → node rules → repair verification on seeded synthetic data |
 
-Siguen siendo públicas, como siempre, las rutas de acceso: `GET /api/health` (solo «vivo»), `GET /api/seal/public-key`, `GET /api/auth/status`, `GET /api/auth/csrf`, `POST /api/auth/login` y `POST /api/auth/setup` (esta última deshabilitada en modo público).
+Every datum carries its provenance: **MEASURED** (sensor), **DECLARED** (a person), **INFERRED** (rules and calculations, no AI), **AI HYPOTHESIS** (generative model) and **SIMULATED**. A hypothesis is never shown as a fact, a field report is never counted as a sensor, and a photo no vision provider analyzed never adds support.
 
-### Qué sigue protegido
+## How Kiro was used
 
-**Todo lo demás exige sesión, CSRF y el permiso del rol**, igual que antes: toda escritura (`POST`, `PATCH`, `PUT`, `DELETE`), la IA, la ingesta de telemetría, las órdenes, los expedientes, la exportación e importación de snapshots, el reinicio y la demostración guiada (que además piden contraseña y token de un solo uso), los usuarios, la auditoría y `/api/kiro/files`. Una prueba recorre **todas** las rutas registradas y falla si alguna distinta de las anteriores responde a un visitante.
+- **Spec-driven:** 12 specifications in `.kiro/specs/` with 89 requirements (`REQ-*`). Spec 12 documents the access model, the repair verification and the engine-driven 3D model. It was written after the implementation, to bring those changes under the same traceability rule as the rest.
+- **Strict traceability:** `npm run verify:kiro` fails if a requirement is defined twice, has no table row, cites a file that does not exist, cites no test file, or cites test files that never mention the requirement. "Verified by lint" no longer counts. `src/kiroTrace.test.ts` pins this behaviour and checks the real repository.
+- **Steering:** `.kiro/steering/water-domain-rules.md` holds 23 domain rules (epistemic honesty, "no recovery without measurement", "nothing is simulated silently") and tests enforce them.
+- **Hook:** `.kiro/hooks/spec-traceability-on-save.json` re-runs the traceability test whenever a spec or a test is saved. `.kiro/hooks/verify-integrity.json` is the pipeline `verify:kiro` executes.
+- **Property-based testing (fast-check):** used where examples are not enough. The invariants of `repairVerification` are checked on random series: `VERIFIED` never appears without three usable post-closure measurements, stale data never changes a verdict, arrival order is irrelevant, and a sealed verdict always recomputes to itself.
+- **Not used, on purpose:** MCP servers, custom agents and Kiro Crew. Nothing in this project needed them, and adding them to look sophisticated would not be honest.
 
-El visitante no es un usuario: no existe en `auth.json`, no tiene sesión y su único rol, `VISITOR`, solo concede `state:read` y `evidence:read` (`src/core/permissions.ts`). Nunca se le trata como operador ni como administrador.
+## Tests and evidence
 
-### Aislamiento de los datos
+`npm test` runs the whole suite. Highlights:
 
-- La instancia pública usa su propio estado en `data/public-demo/` (no toca `data/aqua-sentinel-state.json`). Se niega a arrancar si el estado contiene lecturas que no sean sintéticas.
-- En modo público `AQUA_FIELD_DATA` se ignora: toda lectura que llegue se marca como simulada.
-- La demostración se siembra con la API real y una cuenta interna `demo.seed` (rol OPERATOR, contraseña aleatoria que nunca se guarda, desactivada al terminar). Aparece en el registro como «Preparación de la demostración».
-- Los tiempos de una demostración envejecen. Si el estado tiene más de 12 h al arrancar se descarta **solo ese archivo** y se vuelve a sembrar (usuarios, auditoría y clave de sellado no se tocan). `AQUA_PUBLIC_KEEP_STATE=1` lo desactiva.
-- Si se inicia sesión en una instancia pública, lo que haga ese usuario queda en la demostración y es visible para los visitantes, nombres incluidos. Usa cuentas de demostración, no personales.
+- `src/core/repairVerification.test.ts`: examples and properties for the verdict.
+- `src/server/repairLoop.test.ts`: the full cycle through the real server for the three outcomes, including the exported dossier.
+- `src/server/dossier.test.ts`: 21 tampering attacks on a dossier, plus a chain-valid dossier with a false verdict.
+- `src/sim/evaluation.test.ts`: specificity and sensitivity against known ground truth (including the documented limit below).
+- `src/sim/epanetValidation.test.ts`: solver vs EPANET.
+- `src/server/accessModel.test.ts`, `security.*.test.ts`: access model, authentication, authorization, destructive operations, public mode.
 
-### Activarlo y desactivarlo
+Unit and end-to-end tests are not field validation. They show the software behaves as designed on synthetic data.
 
-| Variable | Efecto |
-| --- | --- |
-| `AQUA_PUBLIC_MODE=1` (o `--public`) | Activa el modo público. Sin ella, toda ruta exige sesión. |
-| `AQUA_PUBLIC_KEEP_STATE=1` | No descartar la demostración con más de 12 h. |
-| `AQUA_MEDIA_ORIGINS` | Orígenes https autorizados para reproducir un video alojado fuera (por defecto, solo este servidor). |
+## Access model
 
-Para volver al modo privado basta con arrancar sin la variable. Para operar con usuarios en la instancia pública, créalos con `npm run auth -- create-admin <usuario> --public` y usa «Iniciar sesión» en el menú.
+- **Default:** every route requires a session (deny by default). There are no default credentials.
+- **Local development:** `npm run dev -- --open` (or `AQUA_OPEN_ACCESS=1`) opens an automatic `invitado` session with the `OPERATOR` role. It is opt-in, is **ignored in production and in public mode**, and the guest can never read users or the audit log.
+- **Judges / evaluators:** set `AQUA_JUDGE_PASSWORD` (and optionally `AQUA_JUDGE_USER`, default `judge`) on the deployment. An `OPERATOR` account is created at startup; the password is never stored in clear text or logged, and an existing account is never overwritten. Share the credentials through the contest form, not the repository.
+- **Roles:** `VIEWER` reads; `OPERATOR` also ingests, triggers scenarios, uses AI, decides, writes orders and exports dossiers; `ADMIN` also manages users, reads the audit log, exports snapshots and runs destructive operations (re-authentication + one-time token + explicit confirmation + audit before execution + state archived).
+- **First admin:** `npm run auth -- create-admin <user>` (recommended and required in production), or in development a one-time code printed by the server.
 
-En un despliegue (`NODE_ENV=production`) siguen siendo obligatorios `AQUA_ALLOWED_HOSTS` y `AQUA_ALLOWED_ORIGINS`. Detrás de un proxy define `AQUA_TRUSTED_PROXIES`: si no, todos los visitantes comparten una IP y el cupo anónimo (600 peticiones por minuto en modo público, ajustable con `AQUA_RATE_LIMITS`) se agota para todos.
+## Public mode
 
-### Video explicativo
+`npm run public` (or `AQUA_PUBLIC_MODE=1`) serves a **read-only** demo: anyone can open the URL and explore without logging in, but cannot change anything. The state is isolated in `data/public-demo/` and the server refuses to start if it contains non-synthetic readings. A fresh demo is seeded with one incident, its diagnosis, an example photo and an order in progress.
 
-El encabezado de Inicio tiene un selector **English / Español** (inglés por defecto) que cambia sin recargar el título, el subtítulo y el video. Cada idioma muestra solo su versión del video, declarada en `public/config/intro-video.json` bajo `versions.en` y `versions.es`; si un idioma no tuviera versión, avisaría en ese idioma y nunca reproduciría la de otro. **English**: `public/videos/aqua-sentinel-demo-en.mp4` (2 min 12 s, subtítulos `aqua-sentinel-demo-en.vtt`, portada `video-poster-en.jpg`), una animación ilustrativa del flujo completo con todos sus textos en inglés y narración en inglés. **Español**: `public/videos/aqua-sentinel-demo.mp4` (2 min 20 s, subtítulos `aqua-sentinel-demo.vtt`), animación más la **grabación real de la aplicación**. Las dos usan **datos simulados** y **voz sintética** de Windows. La versión inglesa no graba la aplicación porque su interfaz está en español. La animación corta original sigue en `aqua-sentinel-explicativo.mp4`. La reproducción es siempre bajo demanda, sin autoplay. Detalles en `public/videos/LEEME.txt`.
+An anonymous visitor passes only these closed-list `GET` routes:
 
-## Interfaz
+| Route | Purpose | Notes |
+| --- | --- | --- |
+| `/api/state` | Demo state | Redacted: no server paths or internal messages |
+| `/api/events` | Live updates | Same redacted content; max 20 connections per IP |
+| `/api/evidence/:sha256` | Demo photos | Only with an exact 64-hex SHA-256 |
+| `/api/preview/leak` | Engine-computed leak preview for the 3D model | Deterministic, input-bounded, does not read or write state |
 
-Cuatro apartados, en un menú desplegable: **Inicio** (presentación con video, estado de la red y qué hacer ahora), **Mapa**, **Incidentes** (qué pasa, qué significa y qué hacer) y **Órdenes de trabajo**. Las herramientas técnicas (series de sensores, evidencia visual, Trust Ledger, conexión e integraciones, demostración) están en **Herramientas avanzadas**, desde el menú de usuario.
+Also public, as always: `GET /api/health` (only "alive"), `GET /api/seal/public-key`, `GET /api/auth/status`, `GET /api/auth/csrf`, `POST /api/auth/login` and `POST /api/auth/setup` (disabled in public mode). **Everything else requires a session, CSRF and the role's permission**; a test walks every registered route and fails if any other responds to a visitor. In a public deployment, the judge account above is how an evaluator writes.
 
-Cada dato indica su procedencia: **MEDIDO** (sensor), **DECLARADO** (una persona), **INFERIDO** (reglas y cálculos, sin IA), **HIPÓTESIS IA** (modelo generativo) y **SIMULADO** (dato sintético de demostración). Una hipótesis nunca se presenta como hecho. La interfaz respeta el rol (Lector, Operador, Administrador) usando la misma matriz de permisos que el servidor (`src/core/permissions.ts`), pero la autorización real siempre es la del servidor.
+`AQUA_PUBLIC_KEEP_STATE=1` keeps a demo older than 12 hours instead of re-seeding it. Deploy with `render.yaml` / `Dockerfile` (`NODE_ENV=production` requires `AQUA_ALLOWED_HOSTS` and `AQUA_ALLOWED_ORIGINS`; behind a proxy set `AQUA_TRUSTED_PROXIES`).
 
-Correcciones de integridad (spec 11): un reporte de campo cuenta como «reporte» declarado y nunca como «sensores»; cerrar una orden no escribe ninguna lectura, el punto queda «pendiente de verificación» y la primera medición posterior al cierre decide si se recuperó y queda en el Trust Ledger (`POST_CLOSURE_MEASUREMENT`); el flujo de eventos se cierra cuando la sesión caduca, también por inactividad.
-## Acceso y seguridad (Fase 2)
+## Verifiable dossier
 
-Toda la API exige sesión (denegación por defecto). Solo son públicos `GET /api/health` (solo "vivo"), `GET /api/seal/public-key`, y las rutas de inicio de sesión.
-
-**Roles** (matriz en `src/server/authz.ts`, aplicada en el servidor):
-
-| Rol | Puede |
-| --- | --- |
-| VIEWER | Consultar estado, ledger, evidencias y verificar expedientes. |
-| OPERATOR | Lo anterior, más ingesta, escenarios, IA, decisiones, órdenes, evidencias, exportar expedientes y sincronizar reportes offline. |
-| ADMIN | Todo, más usuarios, auditoría, exportar snapshots, sonda de IA y operaciones destructivas. |
-
-**Primer administrador** (no hay credenciales por defecto):
-
-```bash
-# Recomendado, y obligatorio en producción: CLI (la contraseña se pide sin eco o por stdin)
-npm run auth -- create-admin <usuario>
-npm run auth -- create-user <usuario> --role OPERATOR
-npm run auth -- reset-password <usuario>
-npm run auth -- list
-```
-
-En desarrollo, si no hay usuarios, el servidor imprime un código de UN solo uso (15 min, no se guarda en claro) que se introduce en la pantalla de configuración inicial. Al crearse el primer usuario ese asistente queda cerrado para siempre. En producción está deshabilitado salvo `AQUA_SETUP_ENABLED=1`.
-
-**Operaciones destructivas** (reset, demo, import): ADMIN + contraseña de nuevo + token de un solo uso de 60 s + confirmación explícita. La autorización se escribe en la auditoría antes de ejecutar y el estado anterior se archiva en `backups/`; si cualquiera de las dos cosas falla, no se ejecuta. `auth.json` y `audit.jsonl` no se ven afectados.
-
-## Variables de entorno
-
-| Variable | Efecto |
-| --- | --- |
-| `GEMINI_API_KEY` | Opcional. Habilita análisis de imagen y redacción del diagnóstico con Gemini. Sin clave, todo el flujo crítico sigue con el adaptador determinista, declarado en la interfaz. |
-| `GEMINI_MODEL` | Modelo a usar. El valor por defecto `gemini-2.5-flash` **no está validado con clave real** y, según la documentación de Google, es un modelo heredado que se redirigirá desde el 2026-12-01. Fija y valida el modelo antes de depender de él. |
-| `GEMINI_TIMEOUT_MS` / `GEMINI_TOTAL_BUDGET_MS` | Tiempo por llamada (15000) y presupuesto total por enriquecimiento (30000). |
-| `AQUA_ALLOWED_HOSTS` | **Obligatoria en producción.** Valores permitidos de la cabecera `Host` (`host`, `host:puerto` o `host:*`). Evita DNS rebinding. En desarrollo se aceptan `localhost`, `127.0.0.1` y `[::1]`. |
-| `AQUA_ALLOWED_ORIGINS` | **Obligatoria en producción.** Orígenes (`https://aqua.ejemplo.org`) que pueden enviar escrituras. |
-| `AQUA_TRUSTED_PROXIES` | IP de proxys inversos de confianza. Solo entonces se leen `X-Forwarded-For` y `X-Forwarded-Proto`; `X-Forwarded-Host` nunca se usa (el proxy debe conservar `Host`). |
-| `AQUA_PUBLIC_MODE=1` | Modo público de solo lectura y datos simulados (ver «Modo público»). |
-| `AQUA_SETUP_ENABLED=1` | Habilita el asistente web del primer administrador en producción (se prefiere el CLI). |
-| `AQUA_SESSION_IDLE_MS` / `AQUA_SESSION_ABSOLUTE_MS` | Caducidad por inactividad (30 min) y absoluta (12 h). |
-| `AQUA_RATE_LIMITS` | JSON para ajustar cupos por cubeta (`login-ip`, `login-user`, `setup`, `api-anon`, `api-user`, `ai`, `ai-probe`, `upload`, `admin`, `reauth`), p. ej. `{"ai":{"max":10,"windowMs":60000}}`. |
-| `AQUA_FIELD_DATA=1` | Permite que la telemetría externa se marque como dato de campo; por defecto toda lectura externa se fuerza a sintética. |
-| `AQUA_SEAL_PRIVATE_KEY_PEM` | Clave Ed25519 de sellado. Si falta, se usa `seal-key.pem` junto al estado o una clave efímera que se declara como tal. |
-| `AQUA_STATE_PATH`, `HOST`, `PORT` | Ubicación del estado (y de `auth.json`, `audit.jsonl`, `backups/`) y red. `HOST` es `127.0.0.1` por defecto. |
-
-Se eliminaron `AQUA_ADMIN_TOKEN` y `AQUA_ALLOW_DESTRUCTIVE`: el primero era un secreto compartido sin identidad y el segundo desactivaba la autenticación.
-
-En producción usa HTTPS delante (proxy inverso). La cookie de sesión lleva `Secure` y prefijo `__Host-`; sobre HTTP en un host distinto de `localhost` el navegador la rechazará.
-
-## Expediente verificable
-
-Al cerrar una orden se congela y sella el expediente completo (anomalía, telemetría, diagnóstico, visión, hidráulica, orden y evidencia). Para verificarlo fuera del servidor:
+Closing an order freezes and seals the complete dossier (anomaly, telemetry, diagnosis, vision, hydraulics, order, evidence). To verify it outside the server:
 
 ```bash
-npm run verify:dossier -- expediente.json --keyid <huella-de-la-clave-publicada>
+npm run verify:dossier -- dossier.json --keyid <published-key-fingerprint>
 ```
 
-La verificación separa tres cosas: **integridad** (la cadena y las huellas coinciden), **autenticidad** (solo si fijas la clave pública por un canal independiente con `--pubkey` o `--keyid`) e **inmutabilidad** (nunca garantizada: quien controla el servidor puede volver a firmar). Códigos de salida: 0 verificado, 3 solo integridad, 1 alterado o inválido, 2 uso incorrecto.
+Verification separates three things: **integrity** (chain and digests match), **authenticity** (only if you pin the public key through an independent channel with `--pubkey` or `--keyid`) and **immutability** (never guaranteed: whoever controls the server can re-sign). Exit codes: 0 verified, 3 integrity only, 1 tampered or invalid, 2 usage error. When the ledger records a repair verdict, the verifier also recomputes it from the sealed readings.
 
-## Qué es real y qué no
+## Environment variables
 
-- **Real**: motor determinista, solver hidráulico contrastado con EPANET (`epanet-js`, 8 casos, diferencia máxima 0.0027 bar y 0.0007 L/s), ledger SHA-256, firma Ed25519, validaciones, persistencia en archivo.
-- **Simulado o sin validar**: los datos de la red (sintéticos), los adaptadores AWS (S3, Lambda, DynamoDB), Bedrock (no configurado), Gemini texto y visión (sin validar con credenciales reales; las pruebas usan un endpoint simulado solo para el manejo de errores).
-- **Visión**: sin proveedor real la foto queda "no analizada". No se clasifica por nombre, ruta ni URL.
-- **Confianza**: no se muestran porcentajes. El nivel de respaldo (baja/media/alta/en conflicto) se deriva de los canales realmente medidos y vinculados al incidente.
+| Variable | Effect |
+| --- | --- |
+| `AQUA_OPEN_ACCESS=1` / `--open` | Automatic guest session. Local development only; ignored in production and public mode |
+| `AQUA_JUDGE_PASSWORD`, `AQUA_JUDGE_USER` | Evaluator account (`OPERATOR`) created at startup |
+| `AQUA_PUBLIC_MODE=1` / `--public` | Read-only public demo |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | Optional AI text and vision. The default model is not validated with a real key |
+| `AQUA_ALLOWED_HOSTS`, `AQUA_ALLOWED_ORIGINS` | **Required in production** (Host and Origin allow-lists) |
+| `AQUA_TRUSTED_PROXIES` | Trusted reverse-proxy IPs; only then are `X-Forwarded-For/Proto` read |
+| `AQUA_RATE_LIMITS` | JSON overrides per bucket, e.g. `{"ai":{"max":10,"windowMs":60000}}` |
+| `AQUA_FIELD_DATA=1` | Allow external telemetry to be marked as field data (by default all external readings are forced synthetic; ignored in public mode) |
+| `AQUA_SEAL_PRIVATE_KEY_PEM` | Ed25519 sealing key; otherwise `seal-key.pem` next to the state, or an ephemeral key declared as such |
+| `AQUA_STATE_PATH`, `HOST`, `PORT` | State location (and `auth.json`, `audit.jsonl`, `backups/`) and network. `HOST` defaults to `127.0.0.1` |
 
-## Límites hidráulicos
+Use HTTPS in front in production: the session cookie is `Secure` with the `__Host-` prefix.
 
-- Resolución espacial: el tramo entre dos medidores. El caudal perdido es una estimación del balance de masa con su incertidumbre.
-- Límite de detección en la simulación: unos 4.5 L/s en la toma. Pérdidas menores se reportan, como mucho, como anomalía de caudal.
-- La corroboración por presión necesita pérdidas del orden de 10 a 12 L/s.
-- Tramos con bombeo y salidas de tanque no son observables con los medidores actuales; no hay balance de almacenamiento del tanque.
-- La fórmula de Hazen-Williams es común al solver y al diagnóstico; EPANET valida el solver, no la red real.
+## Known limits
 
-## Seguridad: límites conocidos
+- **Hydraulic resolution** is the reach between two meters. Lost flow is a mass-balance estimate with its uncertainty. In this simulation the detection limit at the intake is about 4.5 L/s, and pressure only corroborates losses of roughly 10–12 L/s, so leaks of 4–8 L/s are reported as a flow anomaly, not as a leak. Pumped reaches and tank outlets are not observable with the current meters.
+- **Hazen-Williams is shared** by the solver and the diagnosis; EPANET validates the solver, not a real network.
+- **No field validation.** The repair verification policy (3 clean, 2 anomalous) is a documented design choice on synthetic data, not a calibrated one.
+- **The audit trail is not immutable against the server administrator.** Copy `GET /api/audit/head` to a system the operator does not control for a real guarantee. There is no automatic log rotation.
+- **The rate limiter is in-memory, single process.** Behind a proxy without `AQUA_TRUSTED_PROXIES` all clients share one IP.
+- No two-factor authentication, password expiry or e-mail recovery; user management is by API or CLI.
+- Offline mode covers field reports (IndexedDB queue, idempotent sync); there is no service worker, and syncing requires an `OPERATOR` or `ADMIN` session.
+- The closing photo is sealed but its content is not analyzed.
 
-- **La auditoría no es inmutable frente al administrador del servidor.** La cadena de hashes y la firma de su cabeza detectan ediciones, borrados y truncados hechos por terceros; quien controla el servidor (y la clave de sellado) puede reescribir y volver a firmar. Para una garantía real copia periódicamente `GET /api/audit/head` a un sistema ajeno al operador. No hay rotación ni retención automática: `audit.jsonl` crece mientras no se archive.
-- **El limitador de tasa es en memoria de un solo proceso:** se reinicia con el servidor y no se comparte entre réplicas. Detrás de un proxy sin `AQUA_TRUSTED_PROXIES` todos los clientes comparten una IP. El bloqueo por cuenta puede usarse para molestar a un usuario concreto.
-- No hay gestión de usuarios en la interfaz: se hace por API (`/api/users`) o con el CLI. No hay autenticación de dos factores, ni caducidad de contraseñas, ni recuperación por correo.
-- Los archivos estáticos (la aplicación y sus recursos) se sirven sin sesión para poder mostrar el inicio de sesión; los datos no.
-- Los tokens de operación destructiva viven en memoria: un reinicio los invalida (deseado), pero también significa que no sirve con varias réplicas.
-- El responsable asignado a una orden (`assignee`) es una etiqueta (cuadrilla o persona), no una identidad; el actor del ledger sí sale de la sesión.
-- Quien tenga acceso al sistema de archivos del servidor puede borrar `auth.json` (reabre la configuración inicial en desarrollo) o leer `seal-key.pem`.
-- La foto de cierre se sella pero su contenido no se analiza.
-- El modo offline cubre reportes de campo; no hay service worker. Sincronizarlos exige sesión OPERATOR o ADMIN.
+## License
+
+MIT. See [LICENSE](LICENSE). Submission notes are in [docs/SUBMISSION.md](docs/SUBMISSION.md) and the 3-minute demo storyboard is in [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).

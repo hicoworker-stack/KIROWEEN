@@ -26,6 +26,8 @@ export const PUBLIC_READ_ROUTES: ReadonlyArray<{ method: 'GET'; re: RegExp; doc:
   { method: 'GET', re: /^\/api\/state$/, doc: '/api/state' },
   { method: 'GET', re: /^\/api\/events$/, doc: '/api/events' },
   { method: 'GET', re: /^\/api\/evidence\/[a-f0-9]{64}$/, doc: '/api/evidence/:sha256' },
+  // Vista previa determinista de una fuga para la maqueta 3D: calcula con los motores reales y no lee ni escribe el estado.
+  { method: 'GET', re: /^\/api\/preview\/leak$/, doc: '/api/preview/leak' },
 ];
 
 export function isPublicReadRoute(method: string, path: string): boolean {

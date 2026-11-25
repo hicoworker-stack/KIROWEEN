@@ -7,7 +7,7 @@ import { loadPersistedState, savePersistedState } from './persistence';
 import { createBaselineNodes, generateBaselineSeries } from '../core/networkData';
 import { appendLedgerEntry } from '../core/cryptoLedger';
 
-test('savePersistedState and loadPersistedState survive simulated restart', async () => {
+test('savePersistedState and loadPersistedState survive simulated restart (REQ-ARCH-03)', async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aqua-persist-'));
   const filePath = path.join(tmpDir, 'state.json');
 
@@ -66,7 +66,7 @@ test('savePersistedState and loadPersistedState survive simulated restart', asyn
   }
 });
 
-test('loadPersistedState returns null safely on missing or corrupt file', () => {
+test('loadPersistedState returns null safely on missing or corrupt file (REQ-ARCH-03)', () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aqua-corrupt-'));
   const missingPath = path.join(tmpDir, 'missing.json');
   const corruptPath = path.join(tmpDir, 'corrupt.json');

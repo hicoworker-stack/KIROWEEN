@@ -38,7 +38,7 @@ test('el umbral es la incertidumbre propagada, no un 4 L/s / 15% fijo (REQ-HYD-0
   assert.equal(tronPrecise.state, 'excess', 'con medidores más precisos el mismo exceso sí es significativo');
 });
 
-test('rotura de 12 L/s en P-05: fuga localizada en un único tramo, con presión coherente (REQ-HYD-03)', () => {
+test('rotura de 12 L/s en P-05: fuga localizada en un único tramo, con presión coherente (REQ-HYD-03, REQ-HYD-02)', () => {
   const d = diagnoseHydraulics(nodesFor([leak('P-05', 12)]), NETWORK_PIPES);
   assert.equal(d.level, 'localized_leak');
   const f = d.findings[0];

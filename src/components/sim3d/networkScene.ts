@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
-import { fmt1, LEAK_AT, LEAK_PIPE, SIM_NODES, SIM_PIPE_PATHS, SIM_PIPES, SimPhase, SimResult, SimTone } from '../../ui/sim3dModel';
+import { t } from '../../ui/i18n';
+import { fmt1, fmt2, LEAK_AT, LEAK_PIPE, SIM_NODES, SIM_PIPE_PATHS, SIM_PIPES, SimPhase, SimResult, SimTone } from '../../ui/sim3dModel';
 
 /**
  * Maqueta 3D de la red de demostración (three.js). Este módulo se importa bajo demanda: la landing no carga three.js
- * hasta que la sección está en pantalla. Todo lo que muestra es SIMULADO y sale de computeSim().
+ * hasta que la sección está en pantalla. Todo lo que muestra es SIMULADO y sale de buildSimView(), es decir, de los motores reales.
  */
 
 export interface SceneView {
@@ -782,27 +783,34 @@ export function createNetworkScene(host: HTMLElement, opts: SceneOptions): Scene
       s.ledMat.emissive.setHex(c);
       s.haloMat.color.setHex(c);
       s.select.visible = selected === s.id;
-      s.labelValue.textContent = r.pressureM !== null ? `${fmt1(r.pressureM)} m` : `${fmt1(r.flowLps)} L/s`;
+      s.labelValue.textContent = `${fmt2(r.pressureBar)} bar`;
       s.dot.style.backgroundColor = toneHex(r.tone);
       s.labelEl.style.borderColor = selected === s.id ? '#22d3ee' : '';
       s.labelEl.setAttribute('aria-pressed', String(selected === s.id));
     }
-    const b = sim.balance;
+    const e = sim.engine;
     const detect = sim.phase === 'detect';
+    const concludes = e.level === 'localized_leak' || e.level === 'possible_leak';
     balanceLabel.visible = detect && labelsOn;
     flowTags.forEach((t) => (t.visible = detect && labelsOn));
-    flowTagEls[0].textContent = `Entra ${fmt1(b.inflowLps)} L/s`;
-    flowTagEls[1].textContent = `Llega ${fmt1(b.deliveredLps)} L/s`;
-    balanceEl.textContent = b.detectable ? `Faltan ${fmt1(b.missingLps)} ± ${fmt1(b.uncertaintyLps)} L/s · tramo candidato P-05` : `Diferencia ${fmt1(b.missingLps)} L/s, dentro de la incertidumbre: sin evidencia suficiente`;
-    balanceEl.style.borderColor = b.detectable ? '#fb7185' : '#fbbf24';
-    balanceEl.style.background = b.detectable ? 'rgba(42,6,16,0.88)' : 'rgba(40,28,4,0.88)';
-    balanceEl.style.color = b.detectable ? '#fecdd3' : '#fde68a';
-    (leakPipe.highlight!.material as THREE.MeshBasicMaterial).color.setHex(b.detectable ? COLOR.critical : COLOR.attention);
-    anim.valveTarget = sim.isolated ? Math.PI * 6 : 0;
+    flowTagEls[0].textContent = t(`Troncal mide ${fmt1(sim.readings['N-TRON-04'].flowLs)} L/s`, `Trunk main reads ${fmt1(sim.readings['N-TRON-04'].flowLs)} L/s`);
+    flowTagEls[1].textContent = t(`Escuela recibe ${fmt1(sim.readings['N-DIST-06'].flowLs)} L/s`, `School receives ${fmt1(sim.readings['N-DIST-06'].flowLs)} L/s`);
+    const bal = e.balance;
+    balanceEl.textContent = !bal
+      ? t('El motor no puede evaluar el balance', 'The engine cannot assess the balance')
+      : concludes
+        ? t(`Exceso ${fmt1(bal.excessLs)} ± ${fmt1(bal.sigmaLs)} L/s · motor: ${e.level === 'localized_leak' ? 'fuga localizada' : 'posible fuga'} en ${e.candidatePipeIds.join(', ')}`, `Excess ${fmt1(bal.excessLs)} ± ${fmt1(bal.sigmaLs)} L/s · engine: ${e.level === 'localized_leak' ? 'localized leak' : 'possible leak'} in ${e.candidatePipeIds.join(', ')}`)
+        : e.level === 'flow_anomaly'
+          ? t(`Exceso ${fmt1(bal.excessLs)} ± ${fmt1(bal.sigmaLs)} L/s · el motor NO concluye fuga (la presión no discrimina)`, `Excess ${fmt1(bal.excessLs)} ± ${fmt1(bal.sigmaLs)} L/s · the engine does NOT conclude a leak (pressure cannot tell)`)
+          : t(`Exceso ${fmt1(bal.excessLs)} ± ${fmt1(bal.sigmaLs)} L/s · bajo el límite de ${fmt1(bal.detectionLimitLs)} L/s: sin anomalía`, `Excess ${fmt1(bal.excessLs)} ± ${fmt1(bal.sigmaLs)} L/s · below the ${fmt1(bal.detectionLimitLs)} L/s limit: no anomaly`);
+    balanceEl.style.borderColor = concludes ? '#fb7185' : e.level === 'flow_anomaly' ? '#fbbf24' : '#34d399';
+    balanceEl.style.background = concludes ? 'rgba(42,6,16,0.88)' : e.level === 'flow_anomaly' ? 'rgba(40,28,4,0.88)' : 'rgba(4,36,24,0.88)';
+    balanceEl.style.color = concludes ? '#fecdd3' : e.level === 'flow_anomaly' ? '#fde68a' : '#a7f3d0';
+    (leakPipe.highlight!.material as THREE.MeshBasicMaterial).color.setHex(concludes ? COLOR.critical : e.level === 'flow_anomaly' ? COLOR.attention : COLOR.ok);    anim.valveTarget = sim.isolated ? Math.PI * 6 : 0;
     const wheelMat = valveWheels['N-TRON-04'].userData.material as THREE.MeshStandardMaterial;
     wheelMat.color.setHex(sim.isolated ? COLOR.critical : COLOR.ok);
     works.visible = sim.phase === 'repair';
-    patch.visible = sim.phase === 'verified';
+    patch.visible = sim.phase === 'verified' && sim.verdict === 'VERIFIED';
   }
 
   /** Aleja la cámara cuando el visor es estrecho, para que la maqueta entera quepa en la vista general. */
@@ -938,9 +946,9 @@ export function createNetworkScene(host: HTMLElement, opts: SceneOptions): Scene
 
     // Fuga
     const leakOn = sim?.leakActive ?? false;
-    const strength = sim ? Math.sqrt(sim.leakLps / 2.5) : 0;
+    const strength = sim ? Math.sqrt(Math.max(0, sim.leakLps) / 6) : 0;
     anim.leak += ((leakOn ? 1 : 0) - anim.leak) * Math.min(1, dt * 3);
-    anim.puddle += ((leakOn ? 0.5 + 0.45 * sim!.leakLps : 0) - anim.puddle) * Math.min(1, dt * (leakOn ? 0.8 : 2.5));
+    anim.puddle += ((leakOn ? 0.5 + 0.12 * sim!.leakLps : 0) - anim.puddle) * Math.min(1, dt * (leakOn ? 0.8 : 2.5));
     const pr = Math.max(0.001, anim.puddle);
     puddle.scale.set(pr, pr, 1);
     (puddle.material as THREE.MeshStandardMaterial).opacity = Math.min(0.75, anim.puddle * 0.9);
@@ -974,7 +982,7 @@ export function createNetworkScene(host: HTMLElement, opts: SceneOptions): Scene
     drops.instanceMatrix.needsUpdate = true;
 
     // Detección: el tramo candidato late.
-    anim.highlight += ((sim?.phase === 'detect' ? 1 : 0) - anim.highlight) * Math.min(1, dt * 4);
+    anim.highlight += ((sim?.phase === 'detect' && sim.engine.level !== 'no_anomaly' ? 1 : 0) - anim.highlight) * Math.min(1, dt * 4);
     (leakPipe.highlight!.material as THREE.MeshBasicMaterial).opacity = anim.highlight * (0.35 + 0.2 * Math.sin(t * 4));
     leakPipe.highlight!.visible = anim.highlight > 0.01;
 

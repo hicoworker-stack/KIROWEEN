@@ -49,9 +49,12 @@ import {
 } from '../core/telemetryValidation';
 import { classifyOfflineReport } from '../core/offlineConflict';
 import { repairTelemetryState } from '../core/stateRepair';
+import { parsePreviewRepairMode } from '../core/leakPreview';
+import { buildLeakPreview } from './leakPreview';
+import { assessRepair, DEFAULT_REPAIR_POLICY, HydraulicGate, REPAIR_LEDGER_ACTIONS, RepairEvidenceData, summarizeAssessment } from '../core/repairVerification';
 import { auditStateConsistency } from '../core/consistency';
 import { SealedContent } from '../core/dossier';
-import { buildScenarioFrames } from '../sim/scenarioGenerator';
+import { buildRepairFrames, buildScenarioFrames, REPAIR_SIM_MODES, RepairSimMode } from '../sim/scenarioGenerator';
 import {
   analyzeVisionEvidence,
   buildFallbackDiagnosis,
@@ -129,7 +132,7 @@ export interface AppOptions {
   setupEnabled?: boolean;
   /** MODO PÚBLICO: visitantes anónimos de solo lectura en rutas GET acotadas. Por defecto lo decide AQUA_PUBLIC_MODE. */
   publicMode?: boolean;
-  /** ACCESO LIBRE: sesión automática como `invitado` (OPERATOR) sin pantalla de acceso. Por defecto lo decide AQUA_OPEN_ACCESS=1. */
+  /** ACCESO LIBRE (opt-in, solo desarrollo local): sesión automática como `invitado` (OPERATOR). Lo decide AQUA_OPEN_ACCESS=1 o --open; se ignora en producción y en modo público. */
   openAccess?: boolean;
 }
 
@@ -176,13 +179,17 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
   const persistence = new PersistenceTracker(statePath);
   const keys = loadOrCreateSealKeys({ dir: path.dirname(statePath), envPem: env.AQUA_SEAL_PRIVATE_KEY_PEM });
   const publicMode = options.publicMode ?? isPublicModeEnabled(env);
-  const openAccess = options.openAccess ?? env.AQUA_OPEN_ACCESS === '1';
   // En modo público JAMÁS se aceptan lecturas como datos de campo: todo lo que entre es sintético.
   const trustSyntheticFlag = !publicMode && env.AQUA_FIELD_DATA === '1';
 
   // ───────────── Seguridad (Fase 2): usuarios, sesiones, auditoría, cupos ─────────────
   // auth.json y audit.jsonl viven FUERA del estado de la red: reset, demo e import no pueden borrarlos.
   const securityCfg = options.security ?? loadSecurityConfig(env);
+  // REQ-ACC-01: el acceso libre (sesión de invitado con rol OPERATOR) es OPT-IN y SOLO para desarrollo local. Se ignora en producción
+  // y en modo público, donde el visitante sigue siendo de solo lectura.
+  const openAccessRequested = options.openAccess ?? env.AQUA_OPEN_ACCESS === '1';
+  const openAccess = openAccessRequested && !publicMode && !securityCfg.production;
+  if (openAccessRequested && !openAccess) console.warn('[seguridad] AQUA_OPEN_ACCESS se ignora en producción y en modo público: esas instancias no conceden escritura sin cuenta.');
   const authDir = path.dirname(statePath);
   const sessionIdleMs = Number(env.AQUA_SESSION_IDLE_MS) > 0 ? Number(env.AQUA_SESSION_IDLE_MS) : DEFAULT_IDLE_MS;
   // Cada cuánto el flujo de eventos comprueba la sesión y envía un latido (F3: tope de lo que sobrevive tras caducar).
@@ -543,6 +550,7 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
   /** Ingesta de lecturas ya validadas. Debe llamarse dentro de la exclusión mutua. */
   async function ingestReadings(readings: TelemetryReading[]): Promise<IngestResult> {
     const result: IngestResult = { accepted: 0, duplicates: 0, conflicts: [], anomalies: [] };
+    const awaitingVerdict = new Set<string>();
     const ordered = [...readings].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
     for (const r of ordered) {
       const key = readingDedupKey(r);
@@ -575,25 +583,11 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
           ...state.anomalies.filter((a) => !(a.nodeId === node.id && a.status === 'active' && (a.origin ?? 'node-rule') === 'node-rule')),
         ];
       }
+      // REQ-REP-02: una medición posterior al cierre no decide nada por sí sola. El punto sigue "pendiente de verificación"
+      // hasta que settleRepairVerification() (tras evaluar el balance hidráulico) reúna evidencia suficiente.
       const pending = node.pendingVerification;
-      const verifies = Boolean(pending && Date.parse(r.timestamp) > Date.parse(pending.closedAt));
-      const { pendingVerification: _pv, ...nodeRest } = node;
-      state.nodes[idx] = { ...(verifies ? nodeRest : node), current: r, status: nodeStatusFor(node.id, anomaly) };
-      if (pending && verifies) {
-        // F2: la primera medición posterior al cierre es la que dice si el punto se recuperó. Queda en el ledger.
-        const recovered = !anomaly;
-        await append({
-          action: 'POST_CLOSURE_MEASUREMENT',
-          actor: 'Motor Determinista (Ingesta)',
-          assetId: node.id,
-          evidenceSummary: recovered
-            ? `${pending.workOrderId}: primera medición posterior al cierre dentro de lo normal; recuperación medida, no supuesta.`
-            : `${pending.workOrderId}: la primera medición posterior al cierre sigue fuera de lo normal (${anomaly!.title}).`,
-          previousState: 'pendiente de verificación',
-          newState: recovered ? 'recuperación medida' : 'anomalía persiste',
-          evidenceData: { workOrderId: pending.workOrderId, closedAt: pending.closedAt, readingId: r.id, readingTimestamp: r.timestamp, recovered, synthetic: r.synthetic },
-        });
-      }
+      state.nodes[idx] = { ...node, current: r, status: nodeStatusFor(node.id, anomaly) };
+      if (pending && Date.parse(r.timestamp) > Date.parse(pending.closedAt)) awaitingVerdict.add(node.id);
       if (anomaly) {
         await append({
           action: 'TELEMETRY_ANOMALY_INGESTED',
@@ -608,7 +602,50 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
     }
     const net = await runNetworkEvaluation();
     result.anomalies.push(...net);
+    for (const nodeId of awaitingVerdict) await settleRepairVerification(nodeId);
     return result;
+  }
+  /**
+   * REQ-REP-02/03: decide si una reparación quedó verificada, se reabre o sigue sin concluir. Usa las reglas deterministas sobre
+   * las mediciones posteriores Y el balance hidráulico vigente (ambos motores). Solo los veredictos finales se sellan en el ledger,
+   * con las lecturas que los sustentan, para que el expediente pueda recomputarlos sin confiar en el servidor.
+   */
+  async function settleRepairVerification(nodeId: string): Promise<void> {
+    const idx = state.nodes.findIndex((n) => n.id === nodeId);
+    const node = state.nodes[idx];
+    const pending = node?.pendingVerification;
+    if (!node || !pending) return;
+    const finding = ctx.hydraulic?.findings.find((f) => f.nodeId === nodeId);
+    const hydraulic: HydraulicGate | null = finding ? { level: finding.level, excessLs: finding.excessLs } : null;
+    const series = state.seriesByNode[nodeId] ?? [];
+    const verdict = assessRepair({ node, closedAt: pending.closedAt, series, hydraulic });
+    if (verdict.outcome !== 'VERIFIED' && verdict.outcome !== 'REOPENED') {
+      state.nodes[idx] = { ...node, pendingVerification: { ...pending, assessment: summarizeAssessment(verdict) } };
+      return;
+    }
+    const { pendingVerification: _pv, ...rest } = node;
+    const ruleAnomaly = state.anomalies.find((a) => a.nodeId === nodeId && a.status === 'active' && (a.origin ?? 'node-rule') === 'node-rule') ?? null;
+    state.nodes[idx] = { ...rest, status: nodeStatusFor(nodeId, ruleAnomaly) };
+    const verified = verdict.outcome === 'VERIFIED';
+    const evidence: RepairEvidenceData = {
+      workOrderId: pending.workOrderId,
+      nodeId,
+      closedAt: pending.closedAt,
+      outcome: verdict.outcome as 'VERIFIED' | 'REOPENED',
+      policy: DEFAULT_REPAIR_POLICY,
+      readings: series,
+      hydraulic,
+      assessment: summarizeAssessment(verdict),
+    };
+    await append({
+      action: verified ? REPAIR_LEDGER_ACTIONS.VERIFIED : REPAIR_LEDGER_ACTIONS.REOPENED,
+      actor: 'Motor Determinista (Verificación)',
+      assetId: nodeId,
+      evidenceSummary: `${pending.workOrderId}: ${verified ? 'reparación verificada' : 'reparación reabierta'}. ${verdict.reasons.join(' ')}`,
+      previousState: 'pendiente de verificación',
+      newState: verified ? 'recuperación verificada' : 'reparación reabierta',
+      evidenceData: evidence as unknown as Record<string, unknown>,
+    });
   }
 
   // ───────────── Concordancia y diagnóstico determinista ─────────────
@@ -711,6 +748,11 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
     res.json({ keyId: keys.keyId, publicKeyPem: keys.publicKeyPem, persistence: keys.persistence, algorithm: 'Ed25519' });
   });
 
+  // REQ-SIM-02: vista previa de una fuga con los motores reales (solver, diagnóstico hidráulico, reglas y verificación de la reparación).
+  // Solo lectura y determinista: no lee ni modifica el estado, por eso puede servirse también al visitante del modo público.
+  app.get('/api/preview/leak', needs('state:read'), (req, res) => {
+    res.json(buildLeakPreview(req.query.leakLps, parsePreviewRepairMode(req.query.repair)));
+  });
   app.get('/api/ledger/anchor', needs('ledger:anchor'), locked((_req, res) => {
     const anchor = issueAnchor(keys, state.ledger);
     state.anchors = [...state.anchors, anchor].slice(-MAX_ANCHORS);
@@ -997,6 +1039,38 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
     });
   }));
 
+  // REQ-REP-06: mediciones posteriores SIMULADAS para una orden cerrada. Sirve para demostrar el ciclo de verificación sin esperar
+  // sensores reales. Las lecturas las genera el solver y entran por la ingesta normal: el veredicto lo calculan los motores.
+  // Se niega a actuar si la instancia contiene lecturas que no son sintéticas.
+  app.post('/api/work-orders/:id/simulated-measurements', needs('scenario:trigger'), locked(async (req, res) => {
+    const mode = String(req.body?.mode ?? '') as RepairSimMode;
+    if (!REPAIR_SIM_MODES.includes(mode)) throw new HttpError(400, `mode debe ser uno de: ${REPAIR_SIM_MODES.join(', ')}.`);
+    if (state.nodes.some((n) => !n.current.synthetic)) throw new HttpError(409, 'Esta instancia contiene lecturas que no son sintéticas: no se inyectan mediciones simuladas.');
+    const order = state.workOrders[orderIdx(req.params.id)];
+    const pending = state.nodes.find((n) => n.id === order.nodeId)?.pendingVerification;
+    if (order.status !== 'Cerrada' || !pending || pending.workOrderId !== order.id) {
+      throw new HttpError(409, 'Solo se pueden simular mediciones de una orden cerrada que sigue pendiente de verificación.');
+    }
+    const scenarioId = state.anomalies.find((a) => a.id === order.anomalyId)?.scenarioId ?? 'leak';
+    const frames = buildRepairFrames(mode, scenarioId, Math.max(Date.now(), Date.parse(pending.closedAt)));
+    await append({
+      action: 'SIMULATED_MEASUREMENTS_INJECTED',
+      actor: actorLabel(req.auth!.user),
+      assetId: order.nodeId,
+      evidenceSummary: `${order.id}: se simularon ${frames.length} medición(es) posterior(es) al cierre (modo «${mode}»). Son datos SINTÉTICOS generados por el solver hidráulico.`,
+      previousState: 'pendiente de verificación',
+      newState: 'mediciones simuladas recibidas',
+      evidenceData: { workOrderId: order.id, mode, frames: frames.length, synthetic: true, requestedBy: { id: req.auth!.user.id, username: req.auth!.user.username, role: req.auth!.user.role } },
+    });
+    for (const frame of frames) {
+      const v = validateReadingBatch(frame.readings, { knownNodeIds: new Set(state.nodes.map((n) => n.id)), nowMs: Date.now() + 60_000 }, { source: 'scenario-generator' });
+      if ('fatal' in v) throw new HttpError(500, `El generador produjo lecturas inválidas: ${v.fatal}`);
+      if (v.rejected.length > 0) throw new HttpError(500, `El generador produjo lecturas inválidas: ${v.rejected[0].errors.join(' ')}`);
+      await ingestReadings(v.accepted);
+    }
+    persistAndBroadcast(false);
+    res.json({ mode, frames: frames.length, ...statePayload() });
+  }));
   // ───────────── Visión y diagnóstico (llamadas externas fuera de la exclusión mutua) ─────────────
 
   app.post('/api/ai/vision-analyze', needs('ai:use'), limitUser(security, 'ai'), limitUser(security, 'upload'), bigBody('/api/ai/vision-analyze'), async (req, res) => {
@@ -1285,7 +1359,10 @@ export async function createApp(options: AppOptions = {}): Promise<AppHandle> {
       // F2 corregido: cerrar NO escribe ninguna lectura ni declara el punto estable. Queda pendiente de verificación
       // hasta que llegue una medición posterior al cierre (ver ingestReadings).
       const node = state.nodes[nodeIdx];
-      state.nodes[nodeIdx] = { ...node, pendingVerification: { workOrderId: existing.id, closedAt: now } };
+      // Corte de evidencia (REQ-REP-01): solo cuentan las mediciones MÁS NUEVAS que todo lo que el servidor conocía al cerrar. Un dato
+      // con marca futura (reloj adelantado del dispositivo) ya existía al cerrar y no puede demostrar nada sobre la reparación.
+      const newestKnown = Math.max(Date.parse(now), ...(state.seriesByNode[node.id] ?? []).map((r) => Date.parse(r.timestamp)).filter(Number.isFinite));
+      state.nodes[nodeIdx] = { ...node, pendingVerification: { workOrderId: existing.id, closedAt: new Date(newestKnown).toISOString() } };
       ctx.excessStreak[node.id] = 0;
     }
     persistAndBroadcast(false);

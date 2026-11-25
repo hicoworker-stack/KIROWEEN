@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronDown, Clock3, Info, Loader2, OctagonAlert, WifiOff, X } from 'lucide-react';
+import { t } from '../ui/i18n';
 import { HealthKey, PROVENANCE_META, Provenance, Tone } from '../ui/vocab';
 
 /**
@@ -21,13 +22,14 @@ export const toneIcon = (tone: Tone): React.FC<{ className?: string }> =>
 
 export const HEALTH_TONE: Record<HealthKey, Tone> = { stable: 'ok', attention: 'attention', critical: 'critical', verifying: 'verifying', offline: 'offline' };
 
-export const StatusPill: React.FC<{ tone: Tone; label: string; title?: string; className?: string }> = ({ tone, label, title, className = '' }) => {
+/** compact: en pantallas pequeñas solo se ve el icono; el texto sigue disponible para lectores de pantalla. */
+export const StatusPill: React.FC<{ tone: Tone; label: string; title?: string; className?: string; compact?: boolean }> = ({ tone, label, title, className = '', compact = false }) => {
   const Icon = toneIcon(tone);
   const c = TONE[tone];
   return (
     <span title={title} className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold whitespace-nowrap ${c.bg} ${c.border} ${c.text} ${className}`}>
       <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-      {label}
+      {compact ? <span className="sr-only sm:not-sr-only">{label}</span> : label}
     </span>
   );
 };
@@ -96,7 +98,7 @@ export const Notice: React.FC<{ tone?: Tone; title?: string; children: React.Rea
         <div className="text-soft [&_strong]:text-ink">{children}</div>
       </div>
       {onClose && (
-        <button type="button" onClick={onClose} aria-label="Cerrar aviso" className="-m-2 flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-lg text-quiet hover:text-ink">
+        <button type="button" onClick={onClose} aria-label={t('Cerrar aviso', 'Dismiss notice')} className="-m-2 flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-lg text-quiet hover:text-ink">
           <X className="h-4 w-4" />
         </button>
       )}
@@ -169,7 +171,7 @@ export const ConfirmDialog: React.FC<{
         <div className="text-sm leading-relaxed text-soft">{children}</div>
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button variant="ghost" onClick={onCancel} disabled={busy}>
-            Cancelar
+            {t('Cancelar', 'Cancel')}
           </Button>
           <Button variant={tone === 'danger' ? 'danger' : 'primary'} onClick={onConfirm} busy={busy} autoFocus>
             {confirmLabel}

@@ -48,7 +48,7 @@ Cada requisito nace de un hallazgo de la auditoría adversarial. Todo dato de la
 | `REQ-RES-05` | `src/server/runtime.ts`, `src/server/persistence.ts` | `src/server/runtime.test.ts`, `src/server/e2e.test.ts` |
 | `REQ-RES-06` | `src/server/http.ts`, `server.ts` | `src/server/http.test.ts`, `src/server/e2e.test.ts` |
 | `REQ-RES-07` | `src/core/telemetryValidation.ts`, `src/server/app.ts` | `src/core/telemetryValidation.test.ts`, `src/server/e2e.test.ts` |
-| `REQ-RES-08` | `src/components/ErrorBoundary.tsx`, `src/main.tsx` | `src/architecture.test.ts` |
+| `REQ-RES-08` | `src/components/ErrorBoundary.tsx`, `src/main.tsx` | `src/ui/traceability.test.tsx` |
 | `REQ-RES-09` | `src/server/snapshot.ts`, `src/server/app.ts` | `src/server/e2e.test.ts` |
 | `REQ-LED-03` | `src/core/dossier.ts`, `src/server/dossierService.ts` | `src/server/dossier.test.ts`, `src/server/e2e.test.ts` |
 | `REQ-LED-04` | `src/server/runtime.ts` | `src/server/runtime.test.ts` |

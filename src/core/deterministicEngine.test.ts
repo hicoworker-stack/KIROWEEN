@@ -20,7 +20,7 @@ test('nominal baseline reading produces no anomaly', () => {
   assert.equal(evaluateTelemetryReading(node.current, node), null);
 });
 
-test('una caída de presión del 42% con más caudal dispara PRESSURE_DROP_LEAK con prioridad alta', () => {
+test('una caída de presión del 42% con más caudal dispara PRESSURE_DROP_LEAK con prioridad alta (REQ-DET-01)', () => {
   const node = nodeOf('N-TRON-04');
   const a = evaluateTelemetryReading({ ...node.current, id: 'T', timestamp: ts, pressureBar: 2.61, flowLs: 29.4 }, node);
   assert.ok(a);
@@ -29,7 +29,7 @@ test('una caída de presión del 42% con más caudal dispara PRESSURE_DROP_LEAK 
   assert.ok(a.priority.totalScore >= 60);
 });
 
-test('caudal -54% con presión +26% dispara FLOW_OBSTRUCTION', () => {
+test('caudal -54% con presión +26% dispara FLOW_OBSTRUCTION (REQ-DET-01)', () => {
   const node = nodeOf('N-VALV-05');
   const a = evaluateTelemetryReading({ ...node.current, id: 'T', timestamp: ts, pressureBar: 5.29, flowLs: 8.4 }, node);
   assert.ok(a);
@@ -37,7 +37,7 @@ test('caudal -54% con presión +26% dispara FLOW_OBSTRUCTION', () => {
   assert.ok(a.rulesTriggered.some((r) => r.ruleId === 'FLOW_OBSTRUCTION'));
 });
 
-test('turbidez negativa y caudal cero con presión alta: la falla de sensor tiene prioridad sobre fuga o calidad', () => {
+test('turbidez negativa y caudal cero con presión alta: la falla de sensor tiene prioridad sobre fuga o calidad (REQ-DET-01)', () => {
   const node = nodeOf('N-TANQ-03');
   const a = evaluateTelemetryReading({ ...node.current, id: 'T', timestamp: ts, pressureBar: 4.9, flowLs: 0, levelPct: 81, turbidityNtu: -1.4 }, node);
   assert.ok(a);
@@ -45,7 +45,7 @@ test('turbidez negativa y caudal cero con presión alta: la falla de sensor tien
   assert.ok(a.rulesTriggered.some((r) => r.ruleId === 'SENSOR_PHYSICAL_IMPLAUSIBILITY'));
 });
 
-test('turbidez 14.8 NTU, cloro 0.16 mg/L y pH 6.2 disparan QUALITY_PARAMETER_ANOMALY como contaminación crítica', () => {
+test('turbidez 14.8 NTU, cloro 0.16 mg/L y pH 6.2 disparan QUALITY_PARAMETER_ANOMALY como contaminación crítica (REQ-DET-01)', () => {
   const node = nodeOf('N-TOMA-01');
   const a = evaluateTelemetryReading({ ...node.current, id: 'T', timestamp: ts, turbidityNtu: 14.8, chlorineMgL: 0.16, ph: 6.2, levelPct: 88 }, node);
   assert.ok(a);
@@ -54,7 +54,7 @@ test('turbidez 14.8 NTU, cloro 0.16 mg/L y pH 6.2 disparan QUALITY_PARAMETER_ANO
   assert.equal(a.priority.priority, 'Crítica');
 });
 
-test('computeRiskPriorityScore clamps between 0 and 100', () => {
+test('computeRiskPriorityScore clamps between 0 and 100 (REQ-DET-03)', () => {
   const high = computeRiskPriorityScore({ category: 'contamination', maxRuleSeverity: 120, populationServed: 10000, ruleCount: 4 });
   assert.equal(high.totalScore, 100);
   assert.equal(high.priority, 'Crítica');
@@ -63,7 +63,7 @@ test('computeRiskPriorityScore clamps between 0 and 100', () => {
   assert.equal(low.priority, 'Baja');
 });
 
-test('parseCsvTelemetry parses valid rows and catches malformed rows', () => {
+test('parseCsvTelemetry parses valid rows and catches malformed rows (REQ-ING-02)', () => {
   const valid = parseCsvTelemetry(SAMPLE_CSV_PAYLOAD);
   assert.equal(valid.readings.length, 4);
   assert.equal(valid.errors.length, 0);
@@ -72,13 +72,13 @@ test('parseCsvTelemetry parses valid rows and catches malformed rows', () => {
   assert.equal(malformed.errors.length, 1);
 });
 
-test('intentional valveState closed suppresses false-positive sensor implausibility (M-07)', () => {
+test('intentional valveState closed suppresses false-positive sensor implausibility (M-07, REQ-DET-02)', () => {
   const node = nodeOf('N-VALV-05');
   const r = evaluateTelemetryReading({ ...node.current, id: 'T', timestamp: ts, flowLs: 0.0, pressureBar: 4.4, valveState: 'closed' }, node);
   assert.equal(r, null);
 });
 
-test('4 consecutive identical readings trigger SENSOR_STUCK_AT_VALUE (M-07)', () => {
+test('4 consecutive identical readings trigger SENSOR_STUCK_AT_VALUE (M-07, REQ-DET-02)', () => {
   const node = nodeOf('N-TRON-04');
   const frozen = { ...node.current, id: 'FROZEN', timestamp: ts };
   const a = evaluateTelemetryReading(frozen, node, [frozen, frozen, frozen]);
@@ -87,7 +87,7 @@ test('4 consecutive identical readings trigger SENSOR_STUCK_AT_VALUE (M-07)', ()
   assert.ok(a.rulesTriggered.some((r) => r.ruleId === 'SENSOR_STUCK_AT_VALUE'));
 });
 
-test('minor chlorine drift classifies as quality_drift rather than contamination (M-07)', () => {
+test('minor chlorine drift classifies as quality_drift rather than contamination (M-07, REQ-DET-02)', () => {
   const node = nodeOf('N-DIST-06');
   const a = evaluateTelemetryReading({ ...node.current, id: 'T', timestamp: ts, chlorineMgL: 0.24, turbidityNtu: 0.6, ph: 7.2 }, node);
   assert.ok(a);

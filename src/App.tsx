@@ -31,24 +31,27 @@ import { VisionIntelligenceView } from './components/VisionIntelligenceView';
 import { TrustLedgerView } from './components/TrustLedgerView';
 import { IntegrationsAndOfflineView } from './components/IntegrationsAndOfflineView';
 import { ReportIssueSheet } from './components/ReportIssueSheet';
+import type { SimulatedMeasurementMode } from './components/RepairVerificationPanel';
 import { Button, Notice } from './components/ui';
+import { tr } from './ui/engineText';
+import { chooseLang, detectLang, setLang, t, useLang } from './ui/i18n';
 import { AdvancedTab, hashFor, MainView, networkSummary, parseHash } from './ui/vocab';
 
 /** Pasos de la demostración guiada, sobre los cuatro apartados de la aplicación. */
-const GUIDED_STEPS: Array<{ view: MainView; tab?: AdvancedTab; title: string; hint: string }> = [
-  { view: 'home', title: 'Qué está pasando', hint: 'Inicio resume el estado de la red y lo que requiere tu atención. Todas las lecturas son simuladas.' },
-  { view: 'incidents', title: 'Entender el incidente', hint: 'Elige el incidente: verás qué pasa, qué significa y qué tan respaldado está. La causa es una hipótesis, no un hecho.' },
-  { view: 'incidents', title: 'Decidir', hint: 'Acepta la recomendación para crear la orden de trabajo, cámbiala o descártala. Queda registrado con tu usuario.' },
-  { view: 'orders', title: 'Registrar la intervención', hint: 'Completa las tareas, añade la foto y cierra la orden. Después comprueba si ya hay mediciones que confirmen la recuperación.' },
-  { view: 'advanced', tab: 'ledger', title: 'Verificar el registro', hint: 'El Trust Ledger encadena cada decisión. Verifícalo o prueba a alterarlo para ver cómo se detecta.' },
+const guidedSteps = (): Array<{ view: MainView; tab?: AdvancedTab; title: string; hint: string }> => [
+  { view: 'home', title: t('Qué está pasando', 'What is happening'), hint: t('Inicio resume el estado de la red y lo que requiere tu atención. Todas las lecturas son simuladas.', 'Home summarizes the network status and what needs your attention. All readings are simulated.') },
+  { view: 'incidents', title: t('Entender el incidente', 'Understand the incident'), hint: t('Elige el incidente: verás qué pasa, qué significa y qué tan respaldado está. La causa es una hipótesis, no un hecho.', 'Choose the incident: you will see what is happening, what it means and how well supported it is. The cause is a hypothesis, not a fact.') },
+  { view: 'incidents', title: t('Decidir', 'Decide'), hint: t('Acepta la recomendación para crear la orden de trabajo, cámbiala o descártala. Queda registrado con tu usuario.', 'Accept the recommendation to create the work order, change it or dismiss it. It is recorded under your user.') },
+  { view: 'orders', title: t('Registrar la intervención', 'Record the intervention'), hint: t('Completa las tareas, añade la foto y cierra la orden. Después comprueba si ya hay mediciones que confirmen la recuperación.', 'Complete the tasks, add the photo and close the order. Then check whether measurements confirm the recovery.') },
+  { view: 'advanced', tab: 'ledger', title: t('Verificar el registro', 'Verify the record'), hint: t('El Trust Ledger encadena cada decisión. Verifícalo o prueba a alterarlo para ver cómo se detecta.', 'The Trust Ledger chains every decision. Verify it or try tampering with it to see how it is detected.') },
 ];
-
 export default function App() {
   // key: al pasar de visitante a usuario (o al revés) la aplicación se vuelve a montar y recarga su estado con los permisos nuevos.
   return <AuthGate>{(session) => <AppInner key={session.user.id} user={session.user} onLogout={session.logout} />}</AuthGate>;
 }
 
 function AppInner({ user, onLogout }: { user: SessionUser; onLogout?: () => void }) {
+  useLang(); // al cambiar el idioma, esta función y todo lo que cuelga de ella se vuelven a dibujar
   const initial = typeof window !== 'undefined' ? parseHash(window.location.hash) : { view: 'home' as MainView, tab: 'sensores' as AdvancedTab };
   const [view, setView] = useState<MainView>(initial.view);
   const [advancedTab, setAdvancedTab] = useState<AdvancedTab>(initial.tab);
@@ -61,7 +64,7 @@ function AppInner({ user, onLogout }: { user: SessionUser; onLogout?: () => void
   const [workOrders, setWorkOrders] = useState<SmartWorkOrder[]>([]);
   const [ledger, setLedger] = useState<TrustLedgerEntry[]>([]);
   const [providerStatus, setProviderStatus] = useState<{ aiProvider: string; aiMode: 'gemini-live' | 'fallback-adapter'; awsAdapters: Record<string, string> }>({
-    aiProvider: 'Cargando proveedor...',
+    aiProvider: t('Cargando proveedor...', 'Loading provider...'),
     aiMode: 'fallback-adapter',
     awsAdapters: {},
   });
@@ -155,13 +158,13 @@ function AppInner({ user, onLogout }: { user: SessionUser; onLogout?: () => void
     try {
       const res = await apiFetch('/api/state');
       if (!res.ok) {
-        setLoadError(res.status === 401 ? 'Tu sesión terminó.' : `El servidor respondió con el error ${res.status}.`);
+        setLoadError(res.status === 401 ? t('Tu sesión terminó.', 'Your session ended.') : t(`El servidor respondió con el error ${res.status}.`, `The server answered with error ${res.status}.`));
         return;
       }
       applyServerState(await res.json());
       setLoadError(null);
     } catch {
-      setLoadError('No hay conexión con el servidor.');
+      setLoadError(t('No hay conexión con el servidor.', 'There is no connection to the server.'));
     } finally {
       setLoading(false);
     }
@@ -178,12 +181,12 @@ function AppInner({ user, onLogout }: { user: SessionUser; onLogout?: () => void
   useEffect(() => {
     const handleOnline = () => {
       setBrowserOnline(true);
-      notify('Volvió la conexión.');
+      notify(t('Volvió la conexión.', 'The connection is back.'));
       void hydrateState();
     };
     const handleOffline = () => {
       setBrowserOnline(false);
-      notify('Se perdió la conexión. Puedes seguir reportando: se guarda en este dispositivo.');
+      notify(t('Se perdió la conexión. Puedes seguir reportando: se guarda en este dispositivo.', 'The connection was lost. You can keep reporting: it is saved on this device.'));
     };
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
@@ -251,15 +254,26 @@ function AppInner({ user, onLogout }: { user: SessionUser; onLogout?: () => void
         applyServerState(data);
         setSelectedNodeId(data.scenario.nodeId);
         if (data.anomaly?.id) setSelectedIncidentId(data.anomaly.id);
-        notify(`Escenario simulado «${data.scenario.label}» ejecutado. Mira Incidentes.`);
+        notify(t(`Escenario simulado «${data.scenario.label}» ejecutado. Mira Incidentes.`, `Simulated scenario “${tr(data.scenario.label)}” run. See Incidents.`));
       } else {
-        notify(data.error ?? 'No se pudo ejecutar el escenario.');
+        notify(data.error ?? t('No se pudo ejecutar el escenario.', 'The scenario could not be run.'));
       }
     } finally {
       setIsBusy(false);
     }
   };
 
+  /** Simula las mediciones que llegarían tras cerrar una orden. El veredicto lo calculan los motores del servidor, no la interfaz. */
+  const handleSimulateMeasurements = async (orderId: string, mode: SimulatedMeasurementMode) => {
+    const res = await apiFetch(`/api/work-orders/${orderId}/simulated-measurements`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }) });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      applyServerState(data);
+      notify(t('Mediciones simuladas recibidas. El motor evaluó la reparación: revisa el resultado en la orden.', 'Simulated measurements received. The engine assessed the repair: see the result in the order.'));
+    } else {
+      notify(data.error ?? t('No se pudieron simular las mediciones.', 'The measurements could not be simulated.'));
+    }
+  };
   const handleResetDemo = async () => {
     setIsBusy(true);
     try {
@@ -270,9 +284,9 @@ function AppInner({ user, onLogout }: { user: SessionUser; onLogout?: () => void
         setGuidedStepIdx(null);
         setSelectedIncidentId(null);
         setSelectedOrderId(null);
-        notify('La red volvió a su estado normal. El estado anterior se guardó en el servidor.');
+        notify(t('La red volvió a su estado normal. El estado anterior se guardó en el servidor.', 'The network is back to its normal state. The previous state was saved on the server.'));
       } else {
-        notify(data.error ?? (await readServerMessage(res, 'No se pudo reiniciar la red.')));
+        notify(data.error ?? (await readServerMessage(res, t('No se pudo reiniciar la red.', 'The network could not be reset.'))));
       }
     } finally {
       setIsBusy(false);
@@ -284,15 +298,15 @@ function AppInner({ user, onLogout }: { user: SessionUser; onLogout?: () => void
     try {
       const res = await destructiveFetch('/api/demo/frankenstein', 'demo');
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'No se pudo iniciar la demostración.');
+      if (!res.ok) throw new Error(data.error || t('No se pudo iniciar la demostración.', 'The demonstration could not be started.'));
       applyServerState(data);
       setSelectedNodeId(data.scenario.nodeId);
       setSelectedIncidentId(data.anomaly?.id ?? null);
       setGuidedStepIdx(0);
       navigate('home');
-      notify('Demostración iniciada. Todas las lecturas son simuladas.');
+      notify(t('Demostración iniciada. Todas las lecturas son simuladas.', 'Demonstration started. All readings are simulated.'));
     } catch (e) {
-      notify(e instanceof Error ? e.message : 'Error al iniciar la demostración.');
+      notify(e instanceof Error ? e.message : t('Error al iniciar la demostración.', 'Error starting the demonstration.'));
     } finally {
       setIsBusy(false);
     }
@@ -308,25 +322,25 @@ function AppInner({ user, onLogout }: { user: SessionUser; onLogout?: () => void
   const handleAnalyzeVision = async (payload: { nodeId: string; imageUrl: string; imageTitle: string; imageBase64?: string; imageMimeType?: string }): Promise<VisionAnalysisResult> => {
     const res = await apiFetch('/api/ai/vision-analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Error en el análisis de la imagen');
+    if (!res.ok) throw new Error(data.error || t('Error en el análisis de la imagen', 'Error analyzing the image'));
     applyServerState(data);
-    notify('Foto guardada y registrada.');
+    notify(t('Foto guardada y registrada.', 'Photo saved and recorded.'));
     return data.analysis;
   };
 
   /** Foto añadida desde un incidente: se vincula al incidente activo de ese punto. */
   const handleAddIncidentPhoto = async (nodeId: string, dataUrl: string, title: string) => {
     const m = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
-    if (!m) throw new Error('La foto no se pudo preparar.');
+    if (!m) throw new Error(t('La foto no se pudo preparar.', 'The photo could not be prepared.'));
     await handleAnalyzeVision({ nodeId, imageUrl: '', imageTitle: title, imageBase64: m[2], imageMimeType: m[1] });
   };
 
   const handleGenerateDiagnosis = async (anomalyId: string) => {
     const res = await apiFetch('/api/ai/diagnose', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anomalyId }) });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'No se pudo generar el diagnóstico.');
+    if (!res.ok) throw new Error(data.error || t('No se pudo generar el diagnóstico.', 'The diagnosis could not be generated.'));
     applyServerState(data);
-    notify('Diagnóstico listo.');
+    notify(t('Diagnóstico listo.', 'Diagnosis ready.'));
   };
 
   const handleDecideDiagnosis = async (
@@ -335,9 +349,9 @@ function AppInner({ user, onLogout }: { user: SessionUser; onLogout?: () => void
   ) => {
     const res = await apiFetch(`/api/diagnoses/${diagnosisId}/decision`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `El servidor rechazó la decisión (${res.status}).`);
+    if (!res.ok) throw new Error(data.error || t(`El servidor rechazó la decisión (${res.status}).`, `The server rejected the decision (${res.status}).`));
     applyServerState(data);
-    notify(data.createdOrder ? `Orden ${data.createdOrder.id} creada y registrada.` : 'La recomendación se descartó y quedó registrada.');
+    notify(data.createdOrder ? t(`Orden ${data.createdOrder.id} creada y registrada.`, `Order ${data.createdOrder.id} created and recorded.`) : t('La recomendación se descartó y quedó registrada.', 'The recommendation was dismissed and recorded.'));
   };
 
   /** Llama a la API de órdenes; si el servidor rechaza, lanza el mensaje real para mostrarlo en la UI. */
@@ -346,7 +360,7 @@ function AppInner({ user, onLogout }: { user: SessionUser; onLogout?: () => void
     try {
       res = await apiFetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     } catch {
-      throw new Error('Sin conexión con el servidor. La acción no se aplicó.');
+      throw new Error(t('Sin conexión con el servidor. La acción no se aplicó.', 'No connection to the server. The action was not applied.'));
     }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `Error ${res.status} del servidor.`);
@@ -356,7 +370,7 @@ function AppInner({ user, onLogout }: { user: SessionUser; onLogout?: () => void
 
   const handleUpdateWorkOrder = async (orderId: string, payload: { status: WorkOrderStatus; closureNotes?: string; closureEvidenceLabel?: string }) => {
     await callWorkOrderApi(`/api/work-orders/${orderId}`, 'PATCH', payload);
-    notify(payload.status === 'Cerrada' ? `Orden ${orderId} cerrada y sellada. Falta confirmar la recuperación con mediciones.` : `Orden ${orderId}: ${payload.status.toLowerCase()}.`);
+    notify(payload.status === 'Cerrada' ? t(`Orden ${orderId} cerrada y sellada. Falta confirmar la recuperación con mediciones.`, `Order ${orderId} closed and sealed. Recovery still has to be confirmed with measurements.`) : t(`Orden ${orderId}: ${payload.status.toLowerCase()}.`, `Order ${orderId}: ${payload.status === 'Abierta' ? 'open' : 'in progress'}.`));
   };
   const handleAssignOrder = async (orderId: string, assignee: string) => {
     await callWorkOrderApi(`/api/work-orders/${orderId}/assignee`, 'PATCH', { assignee });
@@ -367,12 +381,12 @@ function AppInner({ user, onLogout }: { user: SessionUser; onLogout?: () => void
   };
   const handleUploadEvidence = async (orderId: string, fileName: string, dataUrl: string) => {
     await callWorkOrderApi(`/api/work-orders/${orderId}/evidence`, 'POST', { fileName, dataUrl });
-    notify('Foto guardada y sellada.');
+    notify(t('Foto guardada y sellada.', 'Photo saved and sealed.'));
   };
 
   const handleDownloadDossier = async (orderId: string) => {
     const res = await apiFetch(`/api/work-orders/${orderId}/dossier`);
-    if (!res.ok) throw new Error('No se pudo generar el expediente.');
+    if (!res.ok) throw new Error(t('No se pudo generar el expediente.', 'The dossier could not be generated.'));
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -380,7 +394,7 @@ function AppInner({ user, onLogout }: { user: SessionUser; onLogout?: () => void
     a.download = `dossier-${orderId}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    notify('Expediente descargado. Puedes verificarlo sin conexión con: npm run verify:dossier -- <archivo>');
+    notify(t('Expediente descargado. Puedes verificarlo sin conexión con: npm run verify:dossier -- <archivo>', 'Dossier downloaded. You can verify it offline with: npm run verify:dossier -- <file>'));
   };
 
   const handleCreateOfflineReport = async (record: OfflineReportRecord) => {
@@ -396,7 +410,7 @@ function AppInner({ user, onLogout }: { user: SessionUser; onLogout?: () => void
       const res = await apiFetch('/api/sync/offline', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reports: pending }) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        notify(data.error ?? 'No se pudieron enviar los reportes. Siguen guardados en este dispositivo.');
+        notify(data.error ?? t('No se pudieron enviar los reportes. Siguen guardados en este dispositivo.', 'The reports could not be sent. They are still saved on this device.'));
         return;
       }
       for (const item of data.results as Array<{ id: string; status: 'synced' | 'duplicate' | 'conflict'; note: string }>) {
@@ -407,7 +421,7 @@ function AppInner({ user, onLogout }: { user: SessionUser; onLogout?: () => void
       applyServerState(data);
       notify(`Se enviaron ${data.results.length} reporte(s).`);
     } catch {
-      notify('No se pudieron enviar los reportes. Siguen guardados en este dispositivo.');
+      notify(t('No se pudieron enviar los reportes. Siguen guardados en este dispositivo.', 'The reports could not be sent. They are still saved on this device.'));
     } finally {
       setSyncing(false);
     }
@@ -417,10 +431,10 @@ function AppInner({ user, onLogout }: { user: SessionUser; onLogout?: () => void
 
   const pendingReports = offlineReports.filter((r) => r.syncStatus === 'pending').length;
   const summary = networkSummary({ nodes, anomalies, diagnoses, orders: workOrders, pendingReports });
-  const activeGuidedStep = guidedStepIdx !== null ? GUIDED_STEPS[guidedStepIdx] : null;
+  const activeGuidedStep = guidedStepIdx !== null ? guidedSteps()[guidedStepIdx] : null;
   const goToStep = (i: number) => {
     setGuidedStepIdx(i);
-    navigate(GUIDED_STEPS[i].view, GUIDED_STEPS[i].tab);
+    navigate(guidedSteps()[i].view, guidedSteps()[i].tab);
   };
 
   const advancedContent = () => {
@@ -462,7 +476,7 @@ function AppInner({ user, onLogout }: { user: SessionUser; onLogout?: () => void
     }
   };
 
-  const viewLabel = view === 'home' ? 'Inicio' : view === 'map' ? 'Mapa' : view === 'incidents' ? 'Incidentes' : view === 'orders' ? 'Órdenes de trabajo' : 'Herramientas avanzadas';
+  const viewLabel = view === 'home' ? t('Inicio', 'Home') : view === 'map' ? t('Mapa', 'Map') : view === 'incidents' ? t('Incidentes', 'Incidents') : view === 'orders' ? t('Órdenes de trabajo', 'Work orders') : t('Herramientas avanzadas', 'Advanced tools');
 
   return (
     <AppShell
@@ -481,41 +495,41 @@ function AppInner({ user, onLogout }: { user: SessionUser; onLogout?: () => void
     >
       <div className="space-y-6">
         {persistenceStatus?.mode === 'memory-only' && (
-          <Notice tone="critical" title="El servidor no puede guardar los datos en disco" live="assertive">
-            Los datos solo existen en memoria y se perderán al reiniciar el servidor. Un administrador puede exportar una copia en Herramientas avanzadas → Conexión e integraciones.
-            {persistenceStatus.lastError ? ` Último error: ${persistenceStatus.lastError}` : ''}
+          <Notice tone="critical" title={t('El servidor no puede guardar los datos en disco', 'The server cannot save data to disk')} live="assertive">
+            {t('Los datos solo existen en memoria y se perderán al reiniciar el servidor. Un administrador puede exportar una copia en Herramientas avanzadas → Conexión e integraciones.', 'The data only exists in memory and will be lost when the server restarts. An administrator can export a copy in Advanced tools → Connection and integrations.')}
+            {persistenceStatus.lastError ? t(` Último error: ${persistenceStatus.lastError}`, ` Last error: ${persistenceStatus.lastError}`) : ''}
           </Notice>
         )}
         {integrity && integrity.status !== 'ok' && (
-          <Notice tone={integrity.status === 'compromised' ? 'critical' : 'attention'} title={integrity.status === 'compromised' ? 'La integridad del registro está comprometida' : 'La comprobación de integridad tiene avisos'} live="assertive">
+          <Notice tone={integrity.status === 'compromised' ? 'critical' : 'attention'} title={integrity.status === 'compromised' ? t('La integridad del registro está comprometida', 'The integrity of the record is compromised') : t('La comprobación de integridad tiene avisos', 'The integrity check has warnings')} live="assertive">
             {integrity.issues.slice(0, 2).join(' · ')}{' '}
             <button type="button" onClick={() => navigate('advanced', 'ledger')} className="cursor-pointer font-semibold text-accent underline">
-              Ver el registro
+              {t('Ver el registro', 'See the record')}
             </button>
           </Notice>
         )}
 
         {activeGuidedStep && guidedStepIdx !== null && (
-          <section aria-label="Demostración guiada" className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-accent/40 bg-accent/5 px-4 py-3">
+          <section aria-label={t('Demostración guiada', 'Guided demonstration')} className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-accent/40 bg-accent/5 px-4 py-3">
             <div className="min-w-0 flex-1 space-y-0.5">
               <p className="text-xs font-bold uppercase tracking-wider text-accent">
-                Demostración · paso {guidedStepIdx + 1} de {GUIDED_STEPS.length}: {activeGuidedStep.title}
+                {t('Demostración · paso', 'Demonstration · step')} {guidedStepIdx + 1} {t('de', 'of')} {guidedSteps().length}: {activeGuidedStep.title}
               </p>
               <p className="text-sm text-soft">{activeGuidedStep.hint}</p>
             </div>
             <div className="flex gap-2">
               {guidedStepIdx > 0 && (
                 <Button variant="ghost" onClick={() => goToStep(guidedStepIdx - 1)}>
-                  Anterior
+                  {t('Anterior', 'Previous')}
                 </Button>
               )}
-              {guidedStepIdx < GUIDED_STEPS.length - 1 ? (
+              {guidedStepIdx < guidedSteps().length - 1 ? (
                 <Button variant="primary" onClick={() => goToStep(guidedStepIdx + 1)}>
-                  Siguiente
+                  {t('Siguiente', 'Next')}
                 </Button>
               ) : (
                 <Button variant="primary" onClick={() => setGuidedStepIdx(null)}>
-                  Terminar
+                  {t('Terminar', 'Finish')}
                 </Button>
               )}
             </div>
@@ -524,7 +538,7 @@ function AppInner({ user, onLogout }: { user: SessionUser; onLogout?: () => void
 
         {toastMsg && (
           <Notice tone="neutral" onClose={() => setToastMsg(null)}>
-            {toastMsg}
+            {tr(toastMsg)}
           </Notice>
         )}
 
@@ -536,6 +550,7 @@ function AppInner({ user, onLogout }: { user: SessionUser; onLogout?: () => void
               diagnoses={diagnoses}
               workOrders={workOrders}
               seriesByNode={seriesByNode}
+              ledger={ledger}
               pendingReports={pendingReports}
               online={online}
               syncing={syncing}
@@ -580,6 +595,8 @@ function AppInner({ user, onLogout }: { user: SessionUser; onLogout?: () => void
               workOrders={workOrders}
               nodes={nodes}
               seriesByNode={seriesByNode}
+              ledger={ledger}
+              onSimulateMeasurements={can(user.role, 'scenario:trigger') ? handleSimulateMeasurements : undefined}
               role={user.role}
               loading={loading}
               selectedId={selectedOrderId}

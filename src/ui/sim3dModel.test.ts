@@ -1,64 +1,77 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { clampLeak, computeSim, LEAK_RANGE, METER_UNCERTAINTY_LPS, phaseText, SIM_NODES, SIM_PHASES, SIM_PIPE_PATHS, SIM_PIPES } from './sim3dModel';
+import { buildLeakPreview } from '../server/leakPreview';
+import { buildSimView, engineSummary, fmt1, phaseText, SIM_NODES, SIM_PHASES, SIM_PIPE_PATHS, SIM_PIPES, SimPhase } from './sim3dModel';
 
-test('maqueta 3D: en operación normal el balance cierra y todos los sensores están en normal', () => {
-  const s = computeSim('normal', 2.5);
-  assert.equal(s.leakActive, false);
-  assert.equal(s.balance.missingLps, 0);
-  assert.equal(s.balance.inflowLps, s.balance.deliveredLps);
-  for (const r of Object.values(s.readings)) assert.equal(r.tone, 'ok', r.nodeId);
-  assert.equal(s.readings['N-DIST-06'].pressureM, 26);
-});
+/**
+ * REQ-SIM-01: la maqueta 3D no tiene física ni umbrales propios: dibuja y narra lo que concluyen los motores reales
+ * (src/server/leakPreview.ts). Estas pruebas fijan que cada paso corresponde a la instantánea correcta y que el texto cita
+ * las cifras del motor, incluidas sus negativas a concluir.
+ */
+const view = (phase: SimPhase, leak = 12, mode: 'repaired' | 'unresolved' | 'sparse' = 'repaired') => {
+  const preview = buildLeakPreview(leak, mode);
+  return { preview, sim: buildSimView(phase, preview) };
+};
 
-test('maqueta 3D: la fuga hace faltar exactamente su caudal entre los dos medidores y baja la presión aguas abajo', () => {
-  const normal = computeSim('normal', 2.5);
-  const s = computeSim('leak', 2.5);
-  assert.equal(s.balance.missingLps, 2.5);
-  assert.equal(s.pipes['P-05'].up - s.pipes['P-05'].down, 2.5);
-  assert.ok(s.readings['N-DIST-06'].pressureM! < normal.readings['N-DIST-06'].pressureM!);
-  assert.ok(s.readings['N-TRON-04'].pressureM! < normal.readings['N-TRON-04'].pressureM!);
-  assert.equal(s.readings['N-DIST-06'].tone, 'critical');
-  // El ramal sur no comparte tramo con la fuga: no cambia.
-  assert.deepEqual(s.readings['N-DIST-07'], normal.readings['N-DIST-07']);
-  // Conservación: lo que sale del tanque es lo que entregan los dos ramales más la fuga.
-  assert.equal(s.pipes['P-02'].up, s.pipes['P-05'].down + s.pipes['P-06'].down + 2.5);
-});
-
-test('maqueta 3D: una fuga más pequeña que dos veces la incertidumbre no se afirma', () => {
-  const small = computeSim('detect', 0.5);
-  assert.equal(small.balance.detectable, false);
-  assert.match(phaseText(small), /incertidumbre/);
-  assert.doesNotMatch(phaseText(small), /tramo candidato/);
-  const big = computeSim('detect', 2 * METER_UNCERTAINTY_LPS + 0.1);
-  assert.equal(big.balance.detectable, true);
-  assert.match(phaseText(big), /tramo candidato es P-05/);
-});
-
-test('maqueta 3D: durante la reparación el tramo queda aislado y la escuela sin servicio; al verificar se recupera la operación normal', () => {
-  const r = computeSim('repair', 3);
-  assert.equal(r.isolated, true);
-  assert.equal(r.pipes['P-05'].up, 0);
-  assert.equal(r.readings['N-DIST-06'].tone, 'offline');
-  assert.equal(r.readings['N-TRON-04'].statusLabel, 'Válvula cerrada');
-  const v = computeSim('verified', 3);
-  assert.deepEqual(v.readings, computeSim('normal', 3).readings);
-  assert.equal(v.repaired, true);
-  assert.match(phaseText(v), /medida, no supuesta/);
-});
-
-test('maqueta 3D: el tamaño de la fuga se acota al rango del control', () => {
-  assert.equal(clampLeak(99), LEAK_RANGE.max);
-  assert.equal(clampLeak(-1), LEAK_RANGE.min);
-  assert.equal(clampLeak(Number.NaN), LEAK_RANGE.initial);
-  assert.equal(computeSim('leak', 99).leakLps, LEAK_RANGE.max);
-});
-
-test('maqueta 3D: usa los nodos y tramos reales de la red de demostración, cada paso tiene su texto', () => {
+test('REQ-SIM-01: los cinco pasos usan los nombres de estado del producto y la geometría usa los nodos y tramos reales de la red', () => {
+  assert.deepEqual(SIM_PHASES.map((p) => p.label), ['Operación normal', 'Anomalía', 'Investigación', 'Intervención', 'Verificación']);
   assert.equal(SIM_NODES.length, 7);
   for (const n of SIM_NODES) assert.notEqual(n.name, n.id, `${n.id} sin nombre de la red`);
   assert.deepEqual(SIM_PIPES.map((p) => p.id).sort(), Object.keys(SIM_PIPE_PATHS).sort());
   const ids = new Set(SIM_NODES.map((n) => n.id));
   for (const p of SIM_PIPES) assert.ok(ids.has(p.from) && ids.has(p.to), p.id);
-  for (const ph of SIM_PHASES) assert.ok(phaseText(computeSim(ph.id, 2.5)).length > 40, ph.id);
+});
+
+test('REQ-SIM-01: operación normal sin fuga ni alertas; la anomalía muestra la fuga simulada y sus efectos en los sensores', () => {
+  const normal = view('normal').sim;
+  assert.equal(normal.leakActive, false);
+  for (const r of Object.values(normal.readings)) assert.equal(r.tone, 'ok', r.nodeId);
+  const leak = view('leak').sim;
+  assert.equal(leak.leakActive, true);
+  assert.ok(Math.abs(leak.leakLps - 12) < 0.5);
+  assert.ok(leak.readings['N-DIST-06'].pressureBar < normal.readings['N-DIST-06'].pressureBar);
+  assert.ok(leak.pipes['P-05'].up - leak.pipes['P-05'].down > 10, 'antes de la fuga pasa más agua que después');
+});
+
+test('REQ-SIM-01: la investigación cita las cifras del motor y cambia de conclusión con el tamaño de la fuga (sin inventar hallazgos)', () => {
+  const big = view('detect', 12);
+  assert.match(phaseText(big.sim, big.preview), /fuga localizada/);
+  assert.ok(phaseText(big.sim, big.preview).includes(fmt1(big.preview.engine.balance!.excessLs)), 'el texto incluye el exceso que midió el motor');
+  assert.match(engineSummary(big.preview.engine), /exceso de .* ± .* L\/s \(el motor exige superar/);
+  const mid = view('detect', 6);
+  assert.match(phaseText(mid.sim, mid.preview), /NO afirma que haya una fuga/);
+  const small = view('detect', 1);
+  assert.match(phaseText(small.sim, small.preview), /no afirma nada/);
+  assert.doesNotMatch(phaseText(small.sim, small.preview), /fuga localizada|NO afirma que haya una fuga/);
+});
+
+test('REQ-SIM-01: durante la intervención se aísla el tramo y la escuela queda sin servicio; cerrar la orden no verifica nada', () => {
+  const { sim, preview } = view('repair');
+  assert.equal(sim.isolated, true);
+  assert.deepEqual(sim.pipes['P-05'], { up: 0, down: 0 });
+  assert.equal(sim.readings['N-DIST-06'].tone, 'offline');
+  assert.equal(sim.readings['N-TRON-04'].statusLabel, 'Válvula cerrada');
+  assert.equal(sim.verdict, null, 'en este paso todavía no hay veredicto');
+  assert.match(phaseText(sim, preview), /no demuestra que funcionó/);
+});
+
+test('REQ-SIM-01/REQ-REP-03: la verificación refleja el veredicto del motor: VERIFIED recupera la red, REOPENED reactiva la fuga, INCONCLUSIVE no se presenta como recuperado', () => {
+  const ok = view('verified', 12, 'repaired');
+  assert.equal(ok.sim.verdict, 'VERIFIED');
+  assert.equal(ok.sim.leakActive, false);
+  assert.equal(ok.sim.readings['N-TRON-04'].tone, 'ok');
+  assert.match(phaseText(ok.sim, ok.preview), /VERIFICADA y sella el veredicto/);
+  assert.match(phaseText(ok.sim, ok.preview), /datos simulados/);
+
+  const bad = view('verified', 12, 'unresolved');
+  assert.equal(bad.sim.verdict, 'REOPENED');
+  assert.equal(bad.sim.leakActive, true, 'la fuga sigue activa en la maqueta');
+  assert.equal(bad.sim.repaired, false);
+  assert.match(phaseText(bad.sim, bad.preview), /reabre el caso/);
+
+  const thin = view('verified', 12, 'sparse');
+  assert.equal(thin.sim.verdict, 'INCONCLUSIVE');
+  assert.equal(thin.sim.readings['N-TRON-04'].statusLabel, 'En verificación', 'con una sola medición el punto no se muestra como recuperado');
+  assert.notEqual(thin.sim.readings['N-TRON-04'].tone, 'ok');
+  assert.match(phaseText(thin.sim, thin.preview), /nunca se declara recuperado con evidencia insuficiente/);
 });

@@ -22,7 +22,7 @@ const good = {
   ph: 7.2,
 };
 
-test('lectura válida se normaliza y se marca sintética por defecto (REQ-RES-01)', () => {
+test('lectura válida se normaliza y se marca sintética por defecto (REQ-RES-01, REQ-ING-01)', () => {
   const v = validateReading({ ...good, synthetic: false, extra: 'ignorado' }, ctx, { source: 'api' });
   assert.equal(v.ok, true);
   if (v.ok) {

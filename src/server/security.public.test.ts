@@ -60,7 +60,7 @@ test('REQ-PUB-01: el rol VISITOR solo puede leer el estado y las fotos; ningún 
   const forbidden = PERMISSIONS.filter((p) => !['state:read', 'evidence:read'].includes(p));
   for (const p of forbidden) assert.equal(ROLE_PERMISSIONS.VISITOR.has(p), false, p);
   // la lista cerrada de rutas coincide con esos dos permisos y son todas lecturas
-  assert.deepEqual(PUBLIC_READ_ROUTES.map((r) => r.doc), ['/api/state', '/api/events', '/api/evidence/:sha256']);
+  assert.deepEqual(PUBLIC_READ_ROUTES.map((r) => r.doc), ['/api/state', '/api/events', '/api/evidence/:sha256', '/api/preview/leak']);
   assert.ok(PUBLIC_READ_ROUTES.every((r) => r.method === 'GET'));
 });
 
@@ -124,7 +124,7 @@ test('REQ-PUB-01: TODA otra ruta sigue protegida. Un visitante solo supera las r
       if (r.method !== 'GET') assert.ok(status === 401 || status === 403 || status === 404, `${r.method} ${r.path} respondió ${status} a un visitante`);
     }
     const expected = [
-      'GET /api/auth/csrf', 'GET /api/auth/status', 'GET /api/events', 'GET /api/evidence/:sha256', 'GET /api/health', 'GET /api/seal/public-key', 'GET /api/state',
+      'GET /api/auth/csrf', 'GET /api/auth/status', 'GET /api/events', 'GET /api/evidence/:sha256', 'GET /api/health', 'GET /api/preview/leak', 'GET /api/seal/public-key', 'GET /api/state',
       'POST /api/auth/login', 'POST /api/auth/setup',
     ];
     assert.deepEqual(open.sort(), expected, 'las únicas rutas que no responden 401 a un visitante');
@@ -352,7 +352,7 @@ test('REQ-PUB-02: una demostración con más de 12 h se descarta (solo su archiv
 
 test('REQ-PUB-01: el README documenta qué rutas son públicas y que todo lo demás sigue protegido', () => {
   const readme = fs.readFileSync(path.resolve(process.cwd(), 'README.md'), 'utf8');
-  assert.match(readme, /## Modo público/);
+  assert.match(readme, /## Public mode/);
   for (const r of PUBLIC_READ_ROUTES) assert.ok(readme.includes(r.doc), `el README no documenta ${r.doc}`);
   assert.match(readme, /AQUA_PUBLIC_MODE/);
   assert.match(readme, /data\/public-demo/);

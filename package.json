@@ -1,6 +1,7 @@
 {
   "name": "react-example",
   "private": true,
+  "license": "MIT",
   "engines": {
     "node": ">=22"
   },
@@ -16,6 +17,7 @@
     "lint": "tsc --noEmit",
     "test": "tsx --test \"src/**/*.test.ts\" \"src/**/*.test.tsx\"",
     "verify:kiro": "tsx scripts/verifyKiro.ts",
+    "demo:loop": "tsx scripts/demoLoop.ts",
     "verify:dossier": "tsx scripts/verifyDossier.ts",
     "auth": "tsx scripts/authAdmin.ts"
   },
@@ -41,6 +43,7 @@
     "autoprefixer": "^10.4.21",
     "epanet-js": "^0.9.0",
     "esbuild": "^0.28.0",
+    "fast-check": "^4.11.0",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2"

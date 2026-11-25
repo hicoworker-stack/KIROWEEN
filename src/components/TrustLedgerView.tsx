@@ -1,8 +1,13 @@
+import { tr } from '../ui/engineText';
 import { apiFetch } from '../client/api';
 import React, { useState } from 'react';
 import { ShieldCheck, ShieldAlert, Lock, AlertTriangle, RotateCcw } from 'lucide-react';
 import { verifyLedgerChain } from '../core/cryptoLedger';
 import { ChainVerificationResult, TrustLedgerEntry } from '../core/types';
+import { getLang, t } from '../ui/i18n';
+
+const loginNeeded = () => t('La comprobación en el servidor requiere iniciar sesión. La verificación local sí se hizo.', 'Checking on the server requires logging in. The local verification was done.');
+const dateLocale = () => (getLang() === 'en' ? 'en-US' : 'es-ES');
 
 interface TrustLedgerViewProps {
   ledger: TrustLedgerEntry[];
@@ -30,8 +35,8 @@ export const TrustLedgerView: React.FC<TrustLedgerViewProps> = ({ ledger, server
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ledger: chainToTest }),
-        }) : Promise.reject(new Error('La comprobación en el servidor requiere iniciar sesión. La verificación local sí se hizo.'))).then(async (res) => {
-          if (!res.ok) throw new Error(res.status === 401 ? 'La comprobación en el servidor requiere iniciar sesión. La verificación local sí se hizo.' : `HTTP ${res.status}`);
+        }) : Promise.reject(new Error(loginNeeded()))).then(async (res) => {
+          if (!res.ok) throw new Error(res.status === 401 ? loginNeeded() : `HTTP ${res.status}`);
           return (await res.json()) as ChainVerificationResult;
         }),
       ]);
@@ -47,7 +52,7 @@ export const TrustLedgerView: React.FC<TrustLedgerViewProps> = ({ ledger, server
         setServerVerifyError(
           serverSettled.reason instanceof Error
             ? serverSettled.reason.message
-            : 'No se pudo consultar /api/ledger/verify'
+            : t('No se pudo consultar /api/ledger/verify', 'Could not query /api/ledger/verify')
         );
       }
     } finally {
@@ -62,7 +67,7 @@ export const TrustLedgerView: React.FC<TrustLedgerViewProps> = ({ ledger, server
       idx === targetIdx
         ? {
             ...entry,
-            evidenceSummary: '[ALTERACIÓN SIMULADA] Evidencia manipulada sin recalcular SHA-256',
+            evidenceSummary: t('[ALTERACIÓN SIMULADA] Evidencia manipulada sin recalcular SHA-256', '[SIMULATED TAMPERING] Evidence altered without recomputing SHA-256'),
           }
         : entry
     );
@@ -94,12 +99,12 @@ export const TrustLedgerView: React.FC<TrustLedgerViewProps> = ({ ledger, server
           <div className="flex items-center gap-2">
             <Lock className="w-4 h-4 text-cyan-400" />
             <h2 className="text-lg font-semibold text-white">
-              Trust Ledger — Registro Criptográfico Encadenado (SHA-256)
+              {t('Trust Ledger — Registro Criptográfico Encadenado (SHA-256)', 'Trust Ledger — Chained Cryptographic Record (SHA-256)')}
             </h2>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Auditoría append-only con verificación dual (Web Crypto en cliente +{' '}
-            <code className="font-mono text-cyan-300">/api/ledger/verify</code> en servidor).
+            {t('Auditoría append-only con verificación dual (Web Crypto en cliente +', 'Append-only audit trail with dual verification (Web Crypto in the browser +')}{' '}
+            <code className="font-mono text-cyan-300">/api/ledger/verify</code> {t('en servidor).', 'on the server).')}
           </p>
         </div>
 
@@ -112,7 +117,7 @@ export const TrustLedgerView: React.FC<TrustLedgerViewProps> = ({ ledger, server
               className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-[#06131C] hover:bg-[#0F2736] text-amber-300 border border-amber-500/30 rounded-lg cursor-pointer whitespace-nowrap shrink-0"
             >
               <AlertTriangle className="w-3.5 h-3.5" />
-              Simular Alteración (Prueba Auditoría)
+              {t('Simular Alteración (Prueba Auditoría)', 'Simulate tampering (audit test)')}
             </button>
           ) : (
             <button
@@ -121,7 +126,7 @@ export const TrustLedgerView: React.FC<TrustLedgerViewProps> = ({ ledger, server
               className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-[#06131C] hover:bg-[#0F2736] text-cyan-300 border border-cyan-500/40 rounded-lg cursor-pointer whitespace-nowrap shrink-0"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              Restaurar Cadena Íntegra
+              {t('Restaurar Cadena Íntegra', 'Restore the intact chain')}
             </button>
           )}
 
@@ -132,7 +137,7 @@ export const TrustLedgerView: React.FC<TrustLedgerViewProps> = ({ ledger, server
             className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold bg-cyan-500 hover:bg-cyan-400 text-[#041018] rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
             <ShieldCheck className="w-3.5 h-3.5" />
-            {verifying ? 'Verificando...' : 'Verificar Integridad de Cadena'}
+            {verifying ? t('Verificando...', 'Verifying...') : t('Verificar Integridad de Cadena', 'Verify chain integrity')}
           </button>
         </div>
       </section>
@@ -157,44 +162,42 @@ export const TrustLedgerView: React.FC<TrustLedgerViewProps> = ({ ledger, server
               <div className="text-xs space-y-1">
                 <div className="font-semibold text-sm">
                   {hasDiscrepancy
-                    ? 'Discrepancia detectada entre verificación cliente y servidor'
+                    ? t('Discrepancia detectada entre verificación cliente y servidor', 'Mismatch between the browser and server verification')
                     : overallValid
-                      ? `Cadena Verificada Dual: ${clientVerification.checkedCount}/${displayedChain.length} bloques íntegros`
+                      ? t(`Cadena Verificada Dual: ${clientVerification.checkedCount}/${displayedChain.length} bloques íntegros`, `Chain verified twice: ${clientVerification.checkedCount}/${displayedChain.length} blocks intact`)
                       : clientVerification.valid && serverVerifyError
-                        ? `Cliente íntegro (${clientVerification.checkedCount}/${displayedChain.length}), servidor no verificado`
-                        : `Integridad Rota en Bloque #${
-                            clientVerification.brokenIndex ?? serverVerification?.brokenIndex
-                          }`}
+                        ? t(`Cliente íntegro (${clientVerification.checkedCount}/${displayedChain.length}), servidor no verificado`, `Browser check intact (${clientVerification.checkedCount}/${displayedChain.length}), server not verified`)
+                        : t(`Integridad Rota en Bloque #${clientVerification.brokenIndex ?? serverVerification?.brokenIndex}`, `Integrity broken at block #${clientVerification.brokenIndex ?? serverVerification?.brokenIndex}`)}
                 </div>
                 <p className="text-slate-300">
                   {hasDiscrepancy
-                    ? `Cliente (${clientVerification.valid ? 'válido' : `roto #${clientVerification.brokenIndex}`}) vs Servidor (${serverVerification?.valid ? 'válido' : `roto #${serverVerification?.brokenIndex}`}).`
+                    ? t(`Cliente (${clientVerification.valid ? 'válido' : `roto #${clientVerification.brokenIndex}`}) vs Servidor (${serverVerification?.valid ? 'válido' : `roto #${serverVerification?.brokenIndex}`}).`, `Browser (${clientVerification.valid ? 'valid' : `broken #${clientVerification.brokenIndex}`}) vs server (${serverVerification?.valid ? 'valid' : `broken #${serverVerification?.brokenIndex}`}).`)
                     : overallValid
-                      ? 'Todos los digests SHA-256 y enlaces previousHash coinciden matemáticamente en Cliente Web Crypto y Servidor.'
-                      : clientVerification.reason ?? serverVerification?.reason ?? serverVerifyError}
+                      ? t('Todos los digests SHA-256 y enlaces previousHash coinciden matemáticamente en Cliente Web Crypto y Servidor.', 'Every SHA-256 digest and previousHash link matches mathematically in both the browser (Web Crypto) and the server.')
+                      : tr(clientVerification.reason ?? serverVerification?.reason ?? serverVerifyError)}
                 </p>
               </div>
             </div>
             <span className="text-xs font-mono text-slate-300">
-              Verificado: {new Date(clientVerification.verifiedAt).toLocaleTimeString('es-ES')}
+              {t('Verificado:', 'Verified:')} {new Date(clientVerification.verifiedAt).toLocaleTimeString(dateLocale())}
             </span>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-2 border-t border-white/10 text-xs">
             <div className="p-2.5 rounded-lg bg-[#06131C]/80 border border-[#18364A] flex items-center justify-between gap-2">
-              <span className="font-mono text-slate-300">Cliente (Web Crypto SHA-256)</span>
+              <span className="font-mono text-slate-300">{t('Cliente (Web Crypto SHA-256)', 'Browser (Web Crypto SHA-256)')}</span>
               <span
                 className={`font-mono font-semibold ${
                   clientVerification.valid ? 'text-emerald-400' : 'text-rose-400'
                 }`}
               >
                 {clientVerification.valid
-                  ? `✓ ${clientVerification.checkedCount}/${displayedChain.length} íntegros`
-                  : `✖ Roto #${clientVerification.brokenIndex}`}
+                  ? `✓ ${clientVerification.checkedCount}/${displayedChain.length} ${t('íntegros', 'intact')}`
+                  : `✖ ${t('Roto', 'Broken')} #${clientVerification.brokenIndex}`}
               </span>
             </div>
             <div className="p-2.5 rounded-lg bg-[#06131C]/80 border border-[#18364A] flex items-center justify-between gap-2">
-              <span className="font-mono text-slate-300">Servidor (POST /api/ledger/verify)</span>
+              <span className="font-mono text-slate-300">{t('Servidor', 'Server')} (POST /api/ledger/verify)</span>
               {serverVerification ? (
                 <span
                   className={`font-mono font-semibold ${
@@ -202,12 +205,12 @@ export const TrustLedgerView: React.FC<TrustLedgerViewProps> = ({ ledger, server
                   }`}
                 >
                   {serverVerification.valid
-                    ? `✓ ${serverVerification.checkedCount}/${displayedChain.length} íntegros`
-                    : `✖ Roto #${serverVerification.brokenIndex}`}
+                    ? `✓ ${serverVerification.checkedCount}/${displayedChain.length} ${t('íntegros', 'intact')}`
+                    : `✖ ${t('Roto', 'Broken')} #${serverVerification.brokenIndex}`}
                 </span>
               ) : (
                 <span className="font-mono text-amber-300">
-                  ⚠ {serverVerifyError ?? 'Sin respuesta'}
+                  ⚠ {serverVerifyError ?? t('Sin respuesta', 'No response')}
                 </span>
               )}
             </div>
@@ -218,8 +221,8 @@ export const TrustLedgerView: React.FC<TrustLedgerViewProps> = ({ ledger, server
       {/* Hash Chain Table */}
       <section className="bg-[#0A1D29] border border-[#18364A] rounded-xl p-5 space-y-4">
         <div className="flex items-center justify-between text-xs text-slate-400">
-          <span>Bloques encadenados: {displayedChain.length}</span>
-          <span className="font-mono">Algoritmo: Web Crypto + Node SHA-256</span>
+          <span>{t('Bloques encadenados:', 'Chained blocks:')} {displayedChain.length}</span>
+          <span className="font-mono">{t('Algoritmo', 'Algorithm')}: Web Crypto + Node SHA-256</span>
         </div>
 
         <div className="space-y-3">
@@ -247,18 +250,18 @@ export const TrustLedgerView: React.FC<TrustLedgerViewProps> = ({ ledger, server
                     <span className="text-slate-400">{entry.assetId}</span>
                   </div>
                   <span className="font-mono text-slate-400 tabular-nums">
-                    {new Date(entry.timestamp).toLocaleString('es-ES')}
+                    {new Date(entry.timestamp).toLocaleString(dateLocale())}
                   </span>
                 </div>
 
-                <p className="text-xs text-slate-200 leading-relaxed">{entry.evidenceSummary}</p>
+                <p className="text-xs text-slate-200 leading-relaxed">{tr(entry.evidenceSummary)}</p>
 
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400">
-                  <span>Actor: <span className="text-slate-200">{entry.actor}</span></span>
+                  <span>{t('Actor', 'Actor')}: <span className="text-slate-200">{tr(entry.actor)}</span></span>
                   <span aria-hidden="true">·</span>
                   <span>
-                    Transición: <span className="font-mono text-amber-300">{entry.previousState}</span> →{' '}
-                    <span className="font-mono text-emerald-300">{entry.newState}</span>
+                    {t('Transición', 'Transition')}: <span className="font-mono text-amber-300">{tr(entry.previousState)}</span> →{' '}
+                    <span className="font-mono text-emerald-300">{tr(entry.newState)}</span>
                   </span>
                 </div>
 

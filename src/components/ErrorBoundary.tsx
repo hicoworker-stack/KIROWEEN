@@ -1,5 +1,6 @@
 import React from 'react';
 import { AlertTriangle, RotateCcw } from 'lucide-react';
+import { t } from '../ui/i18n';
 
 /**
  * REQ-RES-08: un dato inesperado en un componente ya no deja la interfaz en blanco.
@@ -43,12 +44,11 @@ export class ErrorBoundary extends React.Component<Props, State> {
       <div role="alert" className="m-4 p-5 rounded-xl border border-rose-500/50 bg-[#2A0B14] text-rose-100 space-y-3 max-w-2xl">
         <div className="flex items-center gap-2 font-semibold">
           <AlertTriangle className="w-4 h-4 shrink-0" />
-          {this.props.scope ? `Error al mostrar «${this.props.scope}»` : 'Error inesperado en la aplicación'}
+          {this.props.scope ? t(`Error al mostrar «${this.props.scope}»`, `Error showing “${this.props.scope}”`) : t('Error inesperado en la aplicación', 'Unexpected application error')}
         </div>
         <p className="text-xs leading-relaxed break-words">{describeRenderError(this.state.error)}</p>
         <p className="text-xs text-rose-200/80 leading-relaxed">
-          Los datos del servidor no se perdieron. Si el error persiste tras reintentar, puede haber un dato corrupto en el estado:
-          reinicia la demostración o restaura un snapshot desde «Offline e Integraciones».
+          {t('Los datos del servidor no se perdieron. Si el error persiste tras reintentar, puede haber un dato corrupto en el estado: reinicia la demostración o restaura un snapshot desde «Offline e Integraciones».', 'The server data was not lost. If the error persists after retrying, there may be corrupt data in the state: restart the demonstration or restore a snapshot from “Offline and Integrations”.')}
         </p>
         <div className="flex flex-wrap gap-2">
           <button
@@ -57,14 +57,14 @@ export class ErrorBoundary extends React.Component<Props, State> {
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-rose-500 hover:bg-rose-400 text-[#2A0B14] rounded-lg cursor-pointer"
           >
             <RotateCcw className="w-3.5 h-3.5" />
-            Reintentar
+            {t('Reintentar', 'Retry')}
           </button>
           <button
             type="button"
             onClick={() => window.location.reload()}
             className="px-3 py-1.5 text-xs font-medium border border-rose-400/60 text-rose-100 rounded-lg cursor-pointer"
           >
-            Recargar la página
+            {t('Recargar la página', 'Reload the page')}
           </button>
         </div>
       </div>

@@ -1,3 +1,5 @@
+import { tr } from '../ui/engineText';
+import { t } from '../ui/i18n';
 import React, { useEffect, useState } from 'react';
 import { Cloud, FileCode2, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 import { apiFetch } from '../client/api';
@@ -28,12 +30,13 @@ interface KiroFileItem {
   content: string;
 }
 
-const SYNC_LABEL: Record<OfflineReportRecord['syncStatus'], { text: string; className: string }> = {
-  pending: { text: 'Pendiente de enviar', className: 'text-attention' },
-  synced: { text: 'Enviado', className: 'text-ok' },
-  conflict: { text: 'Enviado con conflicto: requiere revisión', className: 'text-attention' },
-  duplicate: { text: 'Ya existía: se omitió', className: 'text-soft' },
-};
+const syncLabel = (status: OfflineReportRecord['syncStatus']): { text: string; className: string } =>
+  ({
+    pending: { text: t('Pendiente de enviar', 'Waiting to be sent'), className: 'text-attention' },
+    synced: { text: t('Enviado', 'Sent'), className: 'text-ok' },
+    conflict: { text: t('Enviado con conflicto: requiere revisión', 'Sent with a conflict: needs review'), className: 'text-attention' },
+    duplicate: { text: t('Ya existía: se omitió', 'Already existed: skipped'), className: 'text-soft' },
+  })[status];
 
 /**
  * Conectividad, reportes guardados en este dispositivo e integraciones. El formulario para crear un reporte
@@ -88,32 +91,32 @@ export const IntegrationsAndOfflineView: React.FC<IntegrationsAndOfflineViewProp
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 id="conn-title" className="font-display text-lg font-semibold text-ink">
-              Conexión y reportes guardados
+              {t('Conexión y reportes guardados', 'Connection and saved reports')}
             </h2>
-            <p className="text-sm text-soft">Los reportes de campo se guardan en este dispositivo y se envían cuando hay conexión.</p>
+            <p className="text-sm text-soft">{t('Los reportes de campo se guardan en este dispositivo y se envían cuando hay conexión.', 'Field reports are saved on this device and sent when a connection is available.')}</p>
           </div>
-          <StatusPill tone={browserOnline && !isSimulatedOffline ? 'ok' : 'offline'} label={!browserOnline ? 'Sin conexión de red' : isSimulatedOffline ? 'Sin conexión (simulada)' : 'Conectado'} />
+          <StatusPill tone={browserOnline && !isSimulatedOffline ? 'ok' : 'offline'} label={!browserOnline ? t('Sin conexión de red', 'No network connection') : isSimulatedOffline ? t('Sin conexión (simulada)', 'Offline (simulated)') : t('Conectado', 'Connected')} />
         </div>
 
         <div className="flex flex-wrap gap-3">
           <Button variant="primary" busy={syncing} disabled={isOfflineMode || pendingCount === 0 || !maySync} onClick={handleSync} icon={<RefreshCw className="h-4 w-4" />}>
-            Enviar {pendingCount > 0 ? `${pendingCount} ` : ''}
-            {pendingCount === 1 ? 'reporte' : 'reportes'}
+            {t('Enviar', 'Send')} {pendingCount > 0 ? `${pendingCount} ` : ''}
+            {pendingCount === 1 ? t('reporte', 'report') : t('reportes', 'reports')}
           </Button>
-          <Button variant="secondary" onClick={onToggleOfflineMode} icon={isSimulatedOffline ? <WifiOff className="h-4 w-4" /> : <Wifi className="h-4 w-4" />} title="Simula la pérdida de conexión para probar el modo sin conexión">
-            {isSimulatedOffline ? 'Terminar la simulación sin conexión' : 'Simular que no hay conexión'}
+          <Button variant="secondary" onClick={onToggleOfflineMode} icon={isSimulatedOffline ? <WifiOff className="h-4 w-4" /> : <Wifi className="h-4 w-4" />} title={t('Simula la pérdida de conexión para probar el modo sin conexión', 'Simulates losing the connection to test offline mode')}>
+            {isSimulatedOffline ? t('Terminar la simulación sin conexión', 'End the offline simulation') : t('Simular que no hay conexión', 'Simulate no connection')}
           </Button>
         </div>
-        {!maySync && <p className="text-sm text-quiet">Tu rol solo permite consultar: enviar reportes requiere ser operador.</p>}
+        {!maySync && <p className="text-sm text-quiet">{t('Tu rol solo permite consultar: enviar reportes requiere ser operador.', 'Your role is read-only: sending reports requires the operator role.')}</p>}
 
         {offlineReports.length === 0 ? (
-          <EmptyState icon={<Cloud className="h-8 w-8" />} title="No hay reportes guardados en este dispositivo">
-            Usa «Reportar un problema» en Inicio o Incidentes.
+          <EmptyState icon={<Cloud className="h-8 w-8" />} title={t('No hay reportes guardados en este dispositivo', 'No reports saved on this device')}>
+            {t('Usa «Reportar un problema» en Inicio o Incidentes.', 'Use Report a problem on Home or Incidents.')}
           </EmptyState>
         ) : (
           <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface">
             {offlineReports.map((rep) => {
-              const s = SYNC_LABEL[rep.syncStatus];
+              const s = syncLabel(rep.syncStatus);
               return (
                 <li key={rep.id} className="space-y-1 px-4 py-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -123,7 +126,7 @@ export const IntegrationsAndOfflineView: React.FC<IntegrationsAndOfflineViewProp
                     <span className={`text-sm font-medium ${s.className}`}>{s.text}</span>
                   </div>
                   <p className="text-base text-ink">{rep.description}</p>
-                  {rep.syncNote && <p className="text-sm text-quiet">{rep.syncNote}</p>}
+                  {rep.syncNote && <p className="text-sm text-quiet">{tr(rep.syncNote)}</p>}
                 </li>
               );
             })}
@@ -135,33 +138,33 @@ export const IntegrationsAndOfflineView: React.FC<IntegrationsAndOfflineViewProp
 
       {/* Transparencia de proveedores IA y adaptadores cloud + explorador de especificaciones Kiro */}
       <section className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div className="space-y-4 rounded-xl border border-line bg-surface p-5 lg:col-span-5">
+        <div className="min-w-0 space-y-4 rounded-xl border border-line bg-surface p-5 lg:col-span-5">
           <div className="flex items-center gap-2">
             <Cloud className="h-4 w-4 text-accent" />
-            <h3 className="text-base font-semibold text-ink">Proveedores de IA y adaptadores cloud</h3>
+            <h3 className="text-base font-semibold text-ink">{t('Proveedores de IA y adaptadores cloud', 'AI providers and cloud adapters')}</h3>
           </div>
-          <p className="text-sm leading-relaxed text-soft">Los servicios sin credenciales configuradas operan con adaptadores locales de demostración y se declaran como tales.</p>
+          <p className="text-sm leading-relaxed text-soft">{t('Los servicios sin credenciales configuradas operan con adaptadores locales de demostración y se declaran como tales.', 'Services without configured credentials run on local demonstration adapters and are declared as such.')}</p>
           <div className="space-y-2.5 text-sm">
             <div className="rounded-lg border border-line bg-canvas p-3">
-              <div className="text-quiet">Capa de inteligencia multimodal</div>
-              <div className="mt-0.5 font-semibold text-accent">{providerStatus.aiProvider}</div>
+              <div className="text-quiet">{t('Capa de inteligencia multimodal', 'Multimodal intelligence layer')}</div>
+              <div className="mt-0.5 font-semibold text-accent">{tr(providerStatus.aiProvider)}</div>
             </div>
             {Object.entries(providerStatus.awsAdapters).map(([key, val]) => (
               <div key={key} className="rounded-lg border border-line bg-canvas p-3">
-                <div className="font-mono text-xs uppercase text-quiet">AWS {key} (no es un servicio AWS real)</div>
-                <div className="mt-0.5 text-ink">{val}</div>
+                <div className="font-mono text-xs uppercase text-quiet">AWS {key} {t('(no es un servicio AWS real)', '(not a real AWS service)')}</div>
+                <div className="mt-0.5 text-ink">{tr(val)}</div>
               </div>
             ))}
           </div>
         </div>
         {mayReadKiro && (
-        <div className="space-y-4 rounded-xl border border-line bg-surface p-5 lg:col-span-7">
+        <div className="min-w-0 space-y-4 rounded-xl border border-line bg-surface p-5 lg:col-span-7">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <FileCode2 className="h-4 w-4 text-accent" />
-              <h3 className="text-base font-semibold text-ink">Especificaciones Kiro (.kiro/)</h3>
+              <h3 className="text-base font-semibold text-ink">{t('Especificaciones Kiro (.kiro/)', 'Kiro specifications (.kiro/)')}</h3>
             </div>
-            <span className="font-mono text-xs text-quiet">{kiroFiles.length} artefactos en el repositorio</span>
+            <span className="font-mono text-xs text-quiet">{kiroFiles.length} {t('artefactos en el repositorio', 'artifacts in the repository')}</span>
           </div>
           <div className="flex flex-wrap gap-1.5">
             {kiroFiles.map((f) => (
@@ -175,7 +178,7 @@ export const IntegrationsAndOfflineView: React.FC<IntegrationsAndOfflineViewProp
               </button>
             ))}
           </div>
-          {activeKiro && <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-lg border border-line bg-canvas p-4 font-mono text-xs leading-relaxed text-soft">{activeKiro.content}</pre>}
+          {activeKiro && <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-line bg-canvas p-4 font-mono text-xs leading-relaxed text-soft">{activeKiro.content}</pre>}
         </div>
         )}
       </section>

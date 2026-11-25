@@ -20,7 +20,7 @@
 
 | Requisito | Implementación | Prueba / Verificación |
 | --- | --- | --- |
-| `REQ-ING-01` | `src/core/types.ts` | `npm run lint` |
+| `REQ-ING-01` | `src/core/types.ts`, `src/core/telemetryValidation.ts` | `src/core/telemetryValidation.test.ts` |
 | `REQ-ING-02` | `src/core/deterministicEngine.ts` | `src/core/deterministicEngine.test.ts` |
 | `REQ-ING-03` | `server.ts`, `src/core/graphHydrology.ts` | `src/core/graphHydrology.test.ts` |
 

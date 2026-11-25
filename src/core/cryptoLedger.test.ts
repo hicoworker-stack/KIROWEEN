@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { appendLedgerEntry, GENESIS_HASH, verifyLedgerChain } from './cryptoLedger';
 import { TrustLedgerEntry } from './types';
 
-test('appendLedgerEntry links blocks via SHA-256 and verifies cleanly', async () => {
+test('appendLedgerEntry links blocks via SHA-256 and verifies cleanly (REQ-LED-01)', async () => {
   let chain: TrustLedgerEntry[] = [];
   chain = await appendLedgerEntry(chain, {
     action: 'ANOMALY_DETECTED',
@@ -32,7 +32,7 @@ test('appendLedgerEntry links blocks via SHA-256 and verifies cleanly', async ()
   assert.equal(verification.brokenIndex, null);
 });
 
-test('verifyLedgerChain detects tampering in any historical block', async () => {
+test('verifyLedgerChain detects tampering in any historical block (REQ-LED-01)', async () => {
   let chain: TrustLedgerEntry[] = [];
   chain = await appendLedgerEntry(chain, {
     action: 'INIT',

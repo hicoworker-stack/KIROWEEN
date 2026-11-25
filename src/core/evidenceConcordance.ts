@@ -2,7 +2,7 @@ import { visionRoleForAnomaly } from './evidenceLinking';
 import { AnomalyEvent, EvidenceLevel, VisionAnalysisResult } from './types';
 
 /**
- * REQ-AI-02: concordancia entre canales de evidencia, sin porcentajes.
+ * REQ-AI-07: concordancia entre canales de evidencia, sin porcentajes.
  *
  * Antes se mostraban "confianza calibrada" y puntajes 0-100 con topes (55/70/82/95) sin ninguna calibración.
  * Ahora se informa un NIVEL CUALITATIVO de respaldo, derivado solo de cuántos canales distintos del propio sensor

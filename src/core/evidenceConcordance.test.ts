@@ -37,21 +37,21 @@ test('REQ-FIX-01 (F1): un reporte de campo declarado es el canal «reporte», no
   assert.deepEqual(d.evidenceBasis, ['reporte'], 'sin concordancia calculada, el respaldo por defecto tampoco dice «sensores»');
 });
 
-test('solo sensores: nivel "baja", sin número alguno (REQ-AI-02)', () => {
+test('solo sensores: nivel "baja", sin número alguno (REQ-AI-07)', () => {
   const r = evaluateConcordance({ anomaly: leakAnomaly(), vision: null, hydraulic: null });
   assert.equal(r.level, 'baja');
   assert.ok(!('score' in r) && !('confidenceCapPct' in r), 'ya no hay puntajes ni topes porcentuales');
   assert.deepEqual(r.basis, ['sensores']);
 });
 
-test('un canal adicional que coincide da "media"; los dos dan "alta" (REQ-AI-02)', () => {
+test('un canal adicional que coincide da "media"; los dos dan "alta" (REQ-AI-07)', () => {
   const a = leakAnomaly();
   assert.equal(evaluateConcordance({ anomaly: a, hydraulic: hydroSupports }).level, 'media');
   assert.equal(evaluateConcordance({ anomaly: a, vision: vision() }).level, 'media');
   assert.equal(evaluateConcordance({ anomaly: a, hydraulic: hydroSupports, vision: vision() }).level, 'alta');
 });
 
-test('REGRESIÓN DE AUDITORÍA: una fotografía NO analizada no suma nivel (REQ-AI-02, REQ-AI-04)', () => {
+test('REGRESIÓN DE AUDITORÍA: una fotografía NO analizada no suma nivel (REQ-AI-07, REQ-AI-04)', () => {
   const a = leakAnomaly();
   const notAnalyzed = vision({ analysisStatus: 'not_analyzed', visualCategory: undefined, evidenceRole: 'not_analyzed' });
   const r = evaluateConcordance({ anomaly: a, vision: notAnalyzed });
@@ -59,19 +59,19 @@ test('REGRESIÓN DE AUDITORÍA: una fotografía NO analizada no suma nivel (REQ-
   assert.equal(r.channels.find((c) => c.channel === 'fotografía')!.verdict, 'missing');
 });
 
-test('una foto inconclusa es neutral, no respalda (REQ-AI-02)', () => {
+test('una foto inconclusa es neutral, no respalda (REQ-AI-07)', () => {
   const r = evaluateConcordance({ anomaly: leakAnomaly(), vision: vision({ visualCategory: 'inconclusive' }) });
   assert.equal(r.level, 'baja');
   assert.equal(r.channels.find((c) => c.channel === 'fotografía')!.verdict, 'neutral');
 });
 
-test('foto analizada que contradice: "en_conflicto", se reporta y no se promedia (REQ-AI-02)', () => {
+test('foto analizada que contradice: "en_conflicto", se reporta y no se promedia (REQ-AI-07)', () => {
   const r = evaluateConcordance({ anomaly: leakAnomaly(), vision: vision({ visualCategory: 'contamination' }), hydraulic: hydroSupports });
   assert.equal(r.level, 'en_conflicto');
   assert.match(r.statement, /contradice/);
 });
 
-test('sensor_fault con foto analizada de fuga: advierte no descartar la fuga (REQ-AI-02)', () => {
+test('sensor_fault con foto analizada de fuga: advierte no descartar la fuga (REQ-AI-07)', () => {
   const node = createBaselineNodes().find((n) => n.id === 'N-TANQ-03')!;
   const a = evaluateTelemetryReading({ ...node.current, id: 'T', timestamp: 't', turbidityNtu: -1.4, flowLs: 0, pressureBar: 4.9 }, node)!;
   assert.equal(a.category, 'sensor_fault');
@@ -80,7 +80,7 @@ test('sensor_fault con foto analizada de fuga: advierte no descartar la fuga (RE
   assert.match(r.channels.find((c) => c.channel === 'fotografía')!.detail, /No descartar una fuga/);
 });
 
-test('el canal hidráulico solo aplica a fugas y distingue anomalía de caudal de fuga corroborada (REQ-AI-02, REQ-HYD-03)', () => {
+test('el canal hidráulico solo aplica a fugas y distingue anomalía de caudal de fuga corroborada (REQ-AI-07, REQ-HYD-03)', () => {
   const leak = leakAnomaly();
   const flow = evaluateConcordance({ anomaly: leak, hydraulic: { level: 'flow_anomaly', excessLs: 4 } });
   assert.equal(flow.level, 'baja', 'una anomalía de caudal sin corroboración de presión no es respaldo');

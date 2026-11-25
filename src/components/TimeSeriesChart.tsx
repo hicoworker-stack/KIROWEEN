@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { t } from '../ui/i18n';
 import { TelemetryReading } from '../core/types';
 
 export type MetricKey = 'pressureBar' | 'flowLs' | 'turbidityNtu' | 'chlorineMgL' | 'levelPct' | 'ph';
@@ -74,7 +75,7 @@ export const TimeSeriesChart: React.FC<TimeSeriesChartProps> = ({
         <div>
           <h4 className="text-sm font-semibold text-white">{label}</h4>
           <p className="text-xs text-slate-400">
-            Línea sólida: telemetría actual · Línea discontinua: línea base ({baselineValue} {unit})
+            {t('Línea sólida: telemetría actual · Línea discontinua: línea base', 'Solid line: current telemetry · Dashed line: baseline')} ({baselineValue} {unit})
           </p>
         </div>
         <div className="flex items-center gap-4 text-xs font-mono tabular-nums">
@@ -101,7 +102,7 @@ export const TimeSeriesChart: React.FC<TimeSeriesChartProps> = ({
       <svg
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label={`${label}: ${series.length} lecturas sintéticas, último valor ${series[series.length - 1][metric].toFixed(2)} ${unit}, línea base ${baselineValue} ${unit}`}
+        aria-label={t(`${label}: ${series.length} lecturas sintéticas, último valor ${series[series.length - 1][metric].toFixed(2)} ${unit}, línea base ${baselineValue} ${unit}`, `${label}: ${series.length} synthetic readings, latest value ${series[series.length - 1][metric].toFixed(2)} ${unit}, baseline ${baselineValue} ${unit}`)}
         className="w-full h-auto block cursor-crosshair"
         onMouseLeave={() => setHoverIdx(null)}
       >

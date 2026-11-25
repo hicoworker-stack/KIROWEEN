@@ -55,7 +55,7 @@ test('REQ-FIX-02 (F2): cerrar una orden no fabrica lecturas ni declara el punto 
   assert.ok(Date.parse(node.current.timestamp) <= Date.parse(closedAt), 'la lectura actual es la última medición de antes del cierre');
   assert.equal(s.anomalies.find((a: any) => a.nodeId === nodeId && a.status === 'active' && a.origin === 'network-balance'), undefined);
   assert.ok(before.ledger.length < s.ledger.length);
-  assert.equal(s.ledger.filter((e: any) => e.action === 'POST_CLOSURE_MEASUREMENT').length, 0, 'sin medición no hay verificación');
+  assert.equal(s.ledger.filter((e: any) => /^REPAIR_/.test(e.action)).length, 0, 'sin medición no hay verificación');
 });
 
 test('REQ-FIX-02 (F2): lecturas de otros puntos no reabren el incidente con los datos viejos del punto cerrado', async () => {
@@ -72,45 +72,65 @@ test('REQ-FIX-02 (F2): lecturas de otros puntos no reabren el incidente con los 
   assert.equal(s.anomalies.filter((a: any) => a.nodeId === nodeId && a.status === 'active').length, 0, 'no se reabrió con lecturas anteriores al cierre');
 });
 
-test('REQ-FIX-02 (F2): la primera medición posterior al cierre decide y queda en el ledger', async () => {
+/** Marcas temporales crecientes, siempre posteriores al cierre. */
+/** Medición con ruido (un sensor real nunca repite valores idénticos: cuatro iguales seguidos se descartan como sensor congelado). */
+const noisy = (b: { pressureBar: number; flowLs: number; levelPct: number; turbidityNtu: number; chlorineMgL: number; ph: number }, i: number, scale = 1) => ({ ...b, pressureBar: b.pressureBar * scale * (1 + i * 0.004), flowLs: b.flowLs * (scale === 1 ? 1 : 1.6) * (1 + i * 0.003) });
+let lastTs = 0;
+const afterClose = (closedAt: string) => new Date((lastTs = Math.max(lastTs, Date.now(), Date.parse(closedAt)) + 1000)).toISOString();
+test('REQ-REP-02: una sola medición posterior normal NO verifica la reparación; con tres consecutivas queda VERIFIED y sellada en el ledger', async () => {
   const s0 = (await get('/api/state')).data;
   const node = s0.nodes.find((n: any) => n.pendingVerification);
   const { workOrderId, closedAt } = node.pendingVerification;
-  // Una lectura con marca temporal ANTERIOR al cierre (p. ej. un dato rezagado) no verifica nada.
+  // Una lectura con marca temporal ANTERIOR al cierre (p. ej. un dato rezagado) no cuenta.
   const late = await post('/api/telemetry/ingest', { readings: [{ id: 'REZAGADA', nodeId: node.id, timestamp: new Date(Date.parse(closedAt) - 1000).toISOString(), ...node.baseline }] });
   assert.equal(late.status, 200);
   assert.ok(late.data.nodes.find((n: any) => n.id === node.id).pendingVerification, 'un dato anterior al cierre no confirma la recuperación');
+  assert.equal(late.data.nodes.find((n: any) => n.id === node.id).pendingVerification.assessment, undefined, 'ni siquiera cuenta como medición posterior');
 
-  const ts = new Date(Math.max(Date.now(), Date.parse(closedAt) + 1000)).toISOString();
-  const r = await post('/api/telemetry/ingest', { readings: [{ id: 'POST-CIERRE-1', nodeId: node.id, timestamp: ts, ...node.baseline }] });
-  assert.equal(r.status, 200);
-  const after = r.data.nodes.find((n: any) => n.id === node.id);
-  assert.equal(after.pendingVerification, undefined, 'la medición posterior resuelve la verificación');
-  assert.equal(after.status, 'nominal', 'recuperación MEDIDA');
-  assert.equal(after.current.id, 'POST-CIERRE-1');
-  assert.equal(after.current.synthetic, true, 'en esta instancia de prueba la medición sigue rotulada como simulada');
-  const entry = [...r.data.ledger].reverse().find((e: any) => e.action === 'POST_CLOSURE_MEASUREMENT');
-  assert.ok(entry, 'la verificación queda en el Trust Ledger');
+  const ingest = (i: number) => post('/api/telemetry/ingest', { readings: [{ id: `POST-CIERRE-${i}`, nodeId: node.id, timestamp: afterClose(closedAt), ...noisy(node.baseline, i) }] });
+  const first = await ingest(1);
+  const pending1 = first.data.nodes.find((n: any) => n.id === node.id);
+  assert.ok(pending1.pendingVerification, 'con una medición sigue pendiente');
+  assert.equal(pending1.pendingVerification.assessment.outcome, 'INCONCLUSIVE');
+  assert.equal(pending1.pendingVerification.assessment.measuredAfter, 1);
+  assert.equal(first.data.ledger.filter((e: any) => /^REPAIR_/.test(e.action)).length, 0, 'sin evidencia suficiente no se sella ningún veredicto');
+  const second = await ingest(2);
+  assert.ok(second.data.nodes.find((n: any) => n.id === node.id).pendingVerification, 'con dos mediciones sigue pendiente');
+
+  const third = await ingest(3);
+  const after = third.data.nodes.find((n: any) => n.id === node.id);
+  assert.equal(after.pendingVerification, undefined, 'la tercera medición consecutiva resuelve la verificación');
+  assert.equal(after.status, 'nominal');
+  assert.equal(after.current.synthetic, true, 'en esta instancia la medición sigue rotulada como simulada');
+  const entry = [...third.data.ledger].reverse().find((e: any) => e.action === 'REPAIR_VERIFIED');
+  assert.ok(entry, 'el veredicto queda en el Trust Ledger');
   assert.equal(entry.evidenceData.workOrderId, workOrderId);
-  assert.equal(entry.evidenceData.recovered, true);
-  assert.equal(entry.evidenceData.readingId, 'POST-CIERRE-1');
+  assert.equal(entry.evidenceData.outcome, 'VERIFIED');
+  const sealedPost = entry.evidenceData.readings.filter((r: any) => Date.parse(r.timestamp) > Date.parse(closedAt));
+  assert.deepEqual(sealedPost.map((r: any) => r.id), ['POST-CIERRE-1', 'POST-CIERRE-2', 'POST-CIERRE-3'], 'se sellan las mediciones posteriores que sustentan el veredicto (más el historial previo)');
+  assert.equal(entry.evidenceData.assessment.synthetic, true);
+  assert.equal(third.data.ledger.filter((e: any) => e.action === 'POST_CLOSURE_MEASUREMENT').length, 0, 'la acción antigua ya no existe');
   assert.equal((await post('/api/ledger/verify')).data.valid, true, 'la cadena sigue íntegra');
 });
-
-test('REQ-FIX-02 (F2): si la medición posterior sigue fuera de lo normal, se registra que la anomalía persiste', async () => {
+test('REQ-REP-03: dos mediciones posteriores anómalas consecutivas reabren el caso (REOPENED); una sola no concluye', async () => {
   const { nodeId, closedAt } = await closeLeakOrder();
   const node = (await get('/api/state')).data.nodes.find((n: any) => n.id === nodeId);
-  const ts = new Date(Math.max(Date.now(), Date.parse(closedAt) + 1000)).toISOString();
-  const r = await post('/api/telemetry/ingest', {
-    readings: [{ id: 'POST-CIERRE-MAL', nodeId, timestamp: ts, ...node.baseline, pressureBar: node.baseline.pressureBar * 0.6, flowLs: node.baseline.flowLs * 1.6 }],
-  });
-  assert.equal(r.status, 200);
-  const entry = [...r.data.ledger].reverse().find((e: any) => e.action === 'POST_CLOSURE_MEASUREMENT');
-  assert.equal(entry.evidenceData.recovered, false);
-  assert.equal(entry.newState, 'anomalía persiste');
-  assert.notEqual(r.data.nodes.find((n: any) => n.id === nodeId).status, 'nominal');
+  const bad = (i: number) => post('/api/telemetry/ingest', { readings: [{ id: `POST-CIERRE-MAL-${i}`, nodeId, timestamp: afterClose(closedAt), ...noisy(node.baseline, i, 0.6) }] });
+  const first = await bad(1);
+  const mid = first.data.nodes.find((n: any) => n.id === nodeId);
+  assert.ok(mid.pendingVerification, 'una sola medición anómala no basta para concluir');
+  assert.equal(mid.pendingVerification.assessment.outcome, 'INCONCLUSIVE');
+  assert.equal(first.data.ledger.filter((e: any) => /^REPAIR_/.test(e.action) && e.evidenceData.workOrderId === mid.pendingVerification.workOrderId).length, 0);
+  const second = await bad(2);
+  const entry = [...second.data.ledger].reverse().find((e: any) => e.action === 'REPAIR_REOPENED');
+  assert.ok(entry, 'el segundo valor anómalo seguido reabre el caso');
+  assert.equal(entry.evidenceData.outcome, 'REOPENED');
+  assert.equal(entry.newState, 'reparación reabierta');
+  const reopened = second.data.nodes.find((n: any) => n.id === nodeId);
+  assert.equal(reopened.pendingVerification, undefined);
+  assert.notEqual(reopened.status, 'nominal', 'el punto no se presenta como recuperado');
+  assert.equal(second.data.ledger.filter((e: any) => e.action === 'REPAIR_VERIFIED' && e.evidenceData.workOrderId === entry.evidenceData.workOrderId).length, 0);
 });
-
 test('REQ-FIX-01 (F1): un reporte de campo declarado se cuenta como «reporte», nunca como «sensores»', async () => {
   const report = { id: 'OFF-F1', idempotencyKey: 'k-f1', createdAt: new Date().toISOString(), nodeId: 'N-DIST-06', category: 'leak', reporterName: 'Vecina', description: 'Charco que no se seca junto a la válvula' };
   const r = await post('/api/sync/offline', { reports: [report] });

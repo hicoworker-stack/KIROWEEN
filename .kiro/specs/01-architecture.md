@@ -19,7 +19,7 @@ Integrar seis disciplinas operativas tradicionalmente aisladas en un único cicl
 
 | Requisito | Implementación | Prueba / Verificación |
 | --- | --- | --- |
-| `REQ-ARCH-01` | `server.ts`, `src/App.tsx`, `src/core/types.ts` | `npm run lint` |
+| `REQ-ARCH-01` | `src/server/app.ts`, `src/App.tsx`, `src/core/types.ts` | `src/server/repairLoop.test.ts` |
 | `REQ-ARCH-02` | `server.ts`, `src/core/deterministicEngine.ts`, `src/server/aiProvider.ts` | `src/server/aiProvider.test.ts` |
 | `REQ-ARCH-03` | `src/server/persistence.ts`, `server.ts` | `src/server/persistence.test.ts` |
 

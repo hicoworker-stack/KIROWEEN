@@ -190,7 +190,32 @@ export function buildScenarioFrames(id: ScenarioId, nowMs: number): GeneratedFra
   });
 }
 
-/** Coloca las lecturas de un fotograma como lectura actual de cada nodo (para pruebas y evaluaci�n; el servidor usa la ingesta). */
+// ───────────── Mediciones posteriores a una reparación (REQ-REP-06) ─────────────
+/**
+ * Tres cosas que pueden pasar tras cerrar una orden. Las lecturas las produce el MISMO solver hidráulico y entran por la MISMA
+ * ingesta y los MISMOS motores que cualquier medición: aquí no se decide ningún veredicto, solo se simula el mundo físico.
+ *   repaired    la causa desapareció: tres mediciones normales seguidas.
+ *   unresolved  el problema continúa: el escenario original sigue activo durante dos mediciones.
+ *   sparse      llega una sola medición normal: no basta para concluir nada.
+ */
+export type RepairSimMode = 'repaired' | 'unresolved' | 'sparse';
+export const REPAIR_SIM_MODES: readonly RepairSimMode[] = ['repaired', 'unresolved', 'sparse'];
+export const REPAIR_SIM_STEP_MS = 5_000;
+const REPAIR_SIM_STEPS: Record<RepairSimMode, number> = { repaired: 3, unresolved: 2, sparse: 1 };
+
+export function buildRepairFrames(mode: RepairSimMode, scenarioId: ScenarioId, afterMs: number, leakFlowLs?: number): GeneratedFrame[] {
+  // El escenario original vuelve a actuar desde la primera medición posterior (sin rampa), si el problema persiste.
+  const events: ScenarioEvent[] = mode === 'unresolved' ? scenarioEvents(scenarioId).map((e) => ({ ...e, startStep: 0, ...(e.type === 'leak' ? { rampSteps: 1, ...(leakFlowLs !== undefined ? { flowLs: leakFlowLs } : {}) } : {}) })) : [];
+  return generateFrames({
+    seed: DEMO_SEED + 7,
+    startMs: afterMs + 1_000,
+    stepMs: REPAIR_SIM_STEP_MS,
+    steps: REPAIR_SIM_STEPS[mode],
+    noise: DEMO_NOISE,
+    events,
+  });
+}
+/** Coloca las lecturas de un fotograma como lectura actual de cada nodo (para pruebas y evaluaci�n; el servidor usa la ingesta). */
 export function applyFrameToNodes(nodes: NetworkNode[], frame: GeneratedFrame): NetworkNode[] {
   const byNode = new Map(frame.readings.map((r) => [r.nodeId, r]));
   return nodes.map((n) => (byNode.has(n.id) ? { ...n, current: byNode.get(n.id)! } : n));

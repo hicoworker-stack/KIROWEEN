@@ -7,7 +7,8 @@ import path from 'node:path';
 import { appendLedgerEntry, canonicalLedgerPayload, GENESIS_HASH, sha256Hex } from '../core/cryptoLedger';
 import { DecisionDossier, SealedContent } from '../core/dossier';
 import { createBaselineNodes, NETWORK_PIPES } from '../core/networkData';
-import { AnomalyEvent, TrustLedgerEntry } from '../core/types';
+import { assessRepair, DEFAULT_REPAIR_POLICY, RepairEvidenceData, summarizeAssessment } from '../core/repairVerification';
+import { AnomalyEvent, TelemetryReading, TrustLedgerEntry } from '../core/types';
 import { verifyDossierFull } from './dossierVerify';
 import { exportDossier, finalizeSeal, prepareSeal } from './dossierService';
 import { loadOrCreateSealKeys, SealKeys } from './sealing';
@@ -22,7 +23,7 @@ interface Fixture {
 }
 
 /** Construye un expediente real: ledger encadenado + sello + recibo y ancla firmados, con 2 entradas posteriores al cierre. */
-async function buildFixture(): Promise<Fixture> {
+async function buildFixture(verdict?: { outcome: 'VERIFIED' | 'REOPENED'; readings: (closedAt: string) => TelemetryReading[] }): Promise<Fixture> {
   const keysDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aqua-seal-'));
   const keys = loadOrCreateSealKeys({ dir: keysDir });
   const nodes = createBaselineNodes();
@@ -77,6 +78,14 @@ async function buildFixture(): Promise<Fixture> {
   const digests = await prepareSeal(sealed);
   ledger = await appendLedgerEntry(ledger, append('WORK_ORDER_CLOSED', { workOrderId: orderId, closureNotes: 'Brida reemplazada', dossierDigest: digests.dossierDigest, componentDigests: digests.componentDigests, sealVersion: 1 }));
   const seal = finalizeSeal(keys, orderId, digests, ledger[ledger.length - 1]);
+  if (verdict) {
+    // REQ-REP-04: veredicto de la reparación sellado en la cadena, con las lecturas que lo sustentan (el ledger es coherente; lo que se prueba es el recómputo).
+    const closedAt = ledger[ledger.length - 1].timestamp;
+    const readings = verdict.readings(closedAt);
+    const a = assessRepair({ node, closedAt, series: readings });
+    const data: RepairEvidenceData = { workOrderId: orderId, nodeId: node.id, closedAt, outcome: verdict.outcome, policy: DEFAULT_REPAIR_POLICY, readings, hydraulic: null, assessment: summarizeAssessment(a) };
+    ledger = await appendLedgerEntry(ledger, append(verdict.outcome === 'VERIFIED' ? 'REPAIR_VERIFIED' : 'REPAIR_REOPENED', data));
+  }
   // Historia posterior al cierre (otra anomalía): es lo que un atacante intentaría truncar.
   ledger = await appendLedgerEntry(ledger, append('ANOMALY_DETECTED', { anomalyId: 'ANOM-2' }));
   ledger = await appendLedgerEntry(ledger, append('DIAGNOSIS_GENERATED', { diagnosisId: 'DIAG-2' }));
@@ -110,6 +119,40 @@ test('también se puede fijar solo la huella (keyId) de la clave (REQ-LED-05)', 
   assert.equal((await verifyDossierFull(dossier, { trustedKeyId: 'f'.repeat(64) })).overall, 'invalid');
 });
 
+// ---- REQ-REP-04: el verificador recomputa el veredicto de la reparación con las lecturas selladas ----
+const postReading = (closedAt: string, k: number, bad = false): TelemetryReading => {
+  const b = createBaselineNodes().find((n) => n.id === 'N-TRON-04')!.baseline;
+  const w = 1 + k * 0.003;
+  return { id: `P-${k}`, timestamp: new Date(Date.parse(closedAt) + k * 60_000).toISOString(), nodeId: 'N-TRON-04', ...b, pressureBar: b.pressureBar * (bad ? 0.6 : 1) * w, flowLs: b.flowLs * (bad ? 1.6 : 1) * w, synthetic: true };
+};
+const check = (v: Awaited<ReturnType<typeof verifyDossierFull>>, id: string) => v.integrity.checks.find((c) => c.id === id)!;
+test('REQ-REP-04: un expediente con VERIFIED respaldado por tres mediciones posteriores se verifica y lo declara simulado', async () => {
+  const { dossier, keys } = await buildFixture({ outcome: 'VERIFIED', readings: (c) => [1, 2, 3].map((k) => postReading(c, k)) });
+  const v = await verifyDossierFull(dossier, { trustedPublicKeyPem: keys.publicKeyPem });
+  assert.equal(v.overall, 'verified', JSON.stringify([...v.integrity.checks, ...v.authenticity.checks].filter((c) => !c.ok)));
+  assert.equal(check(v, 'repair-verification').ok, true);
+  assert.match(check(v, 'repair-verification').detail, /VERIFIED: 3 medición\(es\).*simulados/);
+});
+test('REQ-REP-04: un expediente cuyo ledger (coherente) afirma VERIFIED con una sola medición posterior es INVÁLIDO', async () => {
+  const { dossier, keys } = await buildFixture({ outcome: 'VERIFIED', readings: (c) => [postReading(c, 1)] });
+  const v = await verifyDossierFull(dossier, { trustedPublicKeyPem: keys.publicKeyPem });
+  assert.equal(v.integrity.checks.find((c) => c.id === 'ledger-chain')!.ok, true, 'la cadena es válida: el engaño está en el veredicto, no en los hashes');
+  assert.equal(check(v, 'repair-verification').ok, false);
+  assert.equal(v.overall, 'invalid');
+});
+test('REQ-REP-04: afirmar VERIFIED cuando las mediciones selladas siguen anómalas es INVÁLIDO; REOPENED honesto se acepta', async () => {
+  const lie = await buildFixture({ outcome: 'VERIFIED', readings: (c) => [1, 2, 3].map((k) => postReading(c, k, true)) });
+  assert.equal((await verifyDossierFull(lie.dossier, { trustedPublicKeyPem: lie.keys.publicKeyPem })).overall, 'invalid');
+  const honest = await buildFixture({ outcome: 'REOPENED', readings: (c) => [1, 2].map((k) => postReading(c, k, true)) });
+  const v = await verifyDossierFull(honest.dossier, { trustedPublicKeyPem: honest.keys.publicKeyPem });
+  assert.equal(check(v, 'repair-verification').ok, true);
+  assert.equal(v.overall, 'verified');
+});
+test('REQ-REP-04: sin veredicto el expediente no afirma que la reparación funcionó (queda pendiente)', async () => {
+  const { dossier, keys } = await buildFixture();
+  const v = await verifyDossierFull(dossier, { trustedPublicKeyPem: keys.publicKeyPem });
+  assert.match(check(v, 'repair-verification').detail, /Pendiente/);
+});
 // ---- Las 21 manipulaciones de la auditoría, ahora como pruebas de regresión ----
 
 type Tamper = (d: DecisionDossier) => void | Promise<void>;

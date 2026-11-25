@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { Role } from '../core/permissions';
+import { setLang } from './i18n';
 import { AdvancedView, DemoPanel } from '../components/AdvancedView';
 import { AppShell } from '../components/AppShell';
 import { HomeView, HomeViewProps } from '../components/HomeView';
@@ -59,7 +60,7 @@ test('REQ-UX-03: F2 visible. Una zona restaurada al cerrar una orden NO se prese
   assert.doesNotMatch(t, /La red está estable/);
   assert.match(t, /Hay zonas pendientes de verificación/);
   assert.match(t, /Pendiente de verificación/);
-  assert.match(t, /sin haber medido nada/);
+  assert.match(t, /No se muestra como recuperada/);
 });
 
 test('REQ-UX-01: Inicio ordena lo que hay que hacer y lo adapta al rol (el Lector no recibe botones que no puede usar)', () => {
@@ -134,21 +135,46 @@ test('REQ-UX-01: un incidente con orden lleva directamente a ella; cada bloque r
   assert.doesNotMatch(t, /Aceptar y crear/);
 });
 
-test('REQ-UX-03: F2 visible. Una orden cerrada sin mediciones posteriores dice "Aún no se puede confirmar" y no promete recuperación', () => {
-  const t = text(html(<WorkOrdersView {...ordersProps()} />));
+test('REQ-UX-03: F2 visible. Una orden cerrada sin mediciones posteriores queda pendiente de verificación, no promete recuperación y pone el veredicto primero', () => {
+  const h = html(<WorkOrdersView {...ordersProps()} />);
+  const t = text(h);
   assert.match(t, /Pendiente de verificación/);
-  assert.match(t, /Aún no se puede confirmar/);
-  assert.match(t, /sus cifras son de antes del cierre/);
+  assert.match(t, /no se puede confirmar/);
+  assert.match(t, /cifras del punto son de antes del cierre/);
+  assert.ok(h.indexOf('data-repair-outcome') < h.indexOf('Qué se hizo'), 'el veredicto va antes que el detalle de lo hecho');
+  assert.doesNotMatch(t, /Orden cerrada con tareas completas y foto sellada/, 'sin el cuadro que repetía lo ya visible');
   assert.doesNotMatch(t, /Restaurar Nodo/);
   assert.doesNotMatch(t, /verificada en campo/);
   const measured = text(html(<WorkOrdersView {...ordersProps({ seriesByNode: { N1: [reading({ timestamp: '2026-06-01T13:30:00.000Z', source: 'api' })] } })} />));
-  assert.match(measured, /Hay 1 medición posterior/);
-  assert.match(measured, /quedó registrada en el Trust Ledger/);
-  assert.doesNotMatch(measured, /recuperación está medida/, 'el punto sigue con la lectura antigua: no se declara recuperado');
-  assert.doesNotMatch(measured, /Aún no se puede confirmar/);
+  assert.match(measured, /Hay 1 medición normal y se necesitan 3 seguidas/);
+  assert.match(measured, /Todavía no hay evidencia suficiente/);
+  assert.doesNotMatch(measured, /recuperación está medida|Reparación verificada/, 'con una sola medición no se declara recuperado');
+  assert.doesNotMatch(measured, /no se puede confirmar/);
 });
 
-test('REQ-UX-05: en Órdenes el Lector consulta pero no modifica; el Operador puede cerrar y se le avisa de lo que implica', () => {
+test('REQ-REP-05: el veredicto sellado en el ledger decide lo que se muestra: VERIFIED lo declara simulado; REOPENED no promete recuperación', () => {
+  const entry = (outcome: 'VERIFIED' | 'REOPENED') =>
+    ({ index: 12, action: outcome === 'VERIFIED' ? 'REPAIR_VERIFIED' : 'REPAIR_REOPENED', evidenceData: { workOrderId: 'OT-1', outcome, assessment: { outcome, measuredAfter: outcome === 'VERIFIED' ? 3 : 2, required: 3, anomalousInRow: outcome === 'VERIFIED' ? 0 : 2, synthetic: true, reasons: [outcome === 'VERIFIED' ? '3 mediciones consecutivas posteriores al cierre dentro de lo normal (datos simulados).' : '2 mediciones consecutivas posteriores al cierre siguen fuera de lo normal.'] } } }) as never;
+  const ok = html(<WorkOrdersView {...ordersProps({ ledger: [entry('VERIFIED')] })} />);
+  assert.match(ok, /data-repair-outcome="VERIFIED"/);
+  assert.match(text(ok), /Reparación verificada con mediciones posteriores/);
+  assert.match(text(ok), /bloque #12/);
+  assert.match(text(ok), /Los datos son simulados/);
+  const bad = text(html(<WorkOrdersView {...ordersProps({ ledger: [entry('REOPENED')] })} />));
+  assert.match(bad, /La reparación no resolvió el problema/);
+  assert.doesNotMatch(bad, /Reparación verificada/);
+});
+test('REQ-REP-06: solo quien puede lanzar escenarios ve el simulador de mediciones posteriores, y siempre rotulado como simulado', () => {
+  const without = text(html(<WorkOrdersView {...ordersProps()} />));
+  assert.doesNotMatch(without, /Simular las mediciones que llegarían después/);
+  const withSim = text(html(<WorkOrdersView {...ordersProps({ onSimulateMeasurements: asyncNoop })} />));
+  assert.match(withSim, /Simular las mediciones que llegarían después/);
+  for (const label of ['La reparación funcionó', 'El problema persiste', 'Llega solo una medición']) assert.match(withSim, new RegExp(label));
+  assert.match(withSim, /SIMULADO/);
+  assert.match(withSim, /No hay resultados prefabricados/);
+  const sealed = text(html(<WorkOrdersView {...ordersProps({ onSimulateMeasurements: asyncNoop, ledger: [{ index: 3, action: 'REPAIR_VERIFIED', evidenceData: { workOrderId: 'OT-1', assessment: { outcome: 'VERIFIED', measuredAfter: 3, required: 3, anomalousInRow: 0, synthetic: true, reasons: ['x'] } } } as never] })} />));
+  assert.doesNotMatch(sealed, /Simular las mediciones que llegarían después/, 'con veredicto sellado ya no se ofrece simular más');
+});test('REQ-UX-05: en Órdenes el Lector consulta pero no modifica; el Operador puede cerrar y se le avisa de lo que implica', () => {
   const open = order({ status: 'En Progreso', checklist: [{ id: 'c1', label: 'Aislar el tramo', done: true }], closureEvidence: closedOrder.closureEvidence, requiredResources: ['Llave'], probableCause: 'Brida', assetName: 'Tubo' });
   const operator = text(html(<WorkOrdersView {...ordersProps({ workOrders: [open] })} />));
   assert.match(operator, /Cerrar la orden/);
@@ -223,7 +249,9 @@ test('REQ-PUB-04: el visitante del modo público ve el aviso de solo lectura y �
 });
 
 test('REQ-PUB-04: el visitante ve la presentación del producto arriba (título, video, cómo funciona, acceso) y el estado de la red debajo', () => {
+  setLang('en');
   const h = html(<HomeView {...homeProps({ role: 'VISITOR' })} />);
+  setLang('es');
   const t = text(h);
   assert.equal((h.match(/<h1/g) ?? []).length, 1, 'una sola h1 en la página');
   assert.match(h, /<h1[^>]*id="hero-title"/);
@@ -233,12 +261,11 @@ test('REQ-PUB-04: el visitante ve la presentación del producto arriba (título,
   assert.match(h, /aspect-video/, 'contenedor 16:9');
   assert.match(h, /src="\/images\/hero-network\.svg"/, 'portada neutra antes de saber si hay video en inglés');
   assert.match(h, /alt="Cover of the explainer video/);
-  const order = ['hero-title', 'aspect-video', 'how-title', 'explore-title', 'Estado de la red ahora', 'home-status'].map((k) => h.indexOf(k));
+  const order = ['hero-title', 'aspect-video', 'how-title', 'explore-title', 'Network status now', 'home-status'].map((k) => h.indexOf(k));
   assert.ok(order.every((n) => n > 0) && order.every((n, i) => i === 0 || n > order[i - 1]), `orden de las secciones: ${order.join(',')}`);
-  assert.match(t, /Empezar a explorar/);
-  assert.match(t, /No necesitas cuenta/);
-  assert.match(t, /Todo lo que ves es simulado/);
-  assert.doesNotMatch(t, /Reportar un problema|Ver una demostración/, 'el visitante no recibe acciones que no puede usar');
+  assert.match(t, /See the incident/);
+  assert.match(t, /Everything you see is simulated/);
+  assert.doesNotMatch(t, /Reportar un problema|Report a problem|Ver una demostración|See a demonstration/, 'el visitante no recibe acciones que no puede usar');
 });
 
 test('REQ-PUB-04: «Cómo funciona» muestra el flujo CAPTURA → DETECCIÓN → ANÁLISIS → ACCIÓN → VERIFICACIÓN con un boceto por paso', () => {
@@ -261,21 +288,22 @@ test('REQ-PUB-04: Inicio abre con la landing para cualquier rol y deja el estado
   assert.match(text(h), /Estado de la red ahora/);
 });
 
-test('Inicio: la simulación 3D va justo debajo del Hero, rotulada como simulada y con sus pasos y controles accesibles', () => {
+test('Inicio: la simulación 3D va justo debajo del Hero, rotulada como simulada, con pasos y controles accesibles y sin resultados inventados', () => {
   const h = html(<HomeView {...homeProps()} />);
   const hero = h.indexOf('hero-title');
   const sim = h.indexOf('id="sim3d-title"');
   const how = h.indexOf('how-title');
   assert.ok(hero > 0 && sim > hero && how > sim, `orden: hero ${hero}, simulación ${sim}, cómo funciona ${how}`);
   const t = text(h);
-  for (const label of ['Operación normal', 'Aparece una fuga', 'Detección', 'Reparación', 'Verificación']) assert.match(t, new RegExp(label));
-  assert.match(t, /Balance de agua del tramo P-05/);
+  for (const label of ['Operación normal', 'Anomalía', 'Investigación', 'Intervención', 'Verificación']) assert.match(t, new RegExp(label));
   assert.match(h, /aria-label="Girar a la izquierda"/);
   assert.match(h, /aria-label="Ver bajo tierra"/);
   assert.match(h, /type="range"/);
   assert.match(t, /Cargando la maqueta 3D/, 'three.js no se carga en el primer render');
+  assert.match(t, /Calculando con los motores del servidor/, 'sin respuesta del servidor no se muestra ninguna cifra');
+  assert.match(t, /¿Qué pasa después de reparar\?/);
+  assert.doesNotMatch(t, /fuga localizada|Reparación verificada/, 'antes de que el motor responda no se afirma nada');
 });
-
 test('REQ-PUB-03: sin video publicado, la portada muestra «Video explicativo próximamente» y el botón de reproducir está desactivado (no se simula nada)', () => {
   const h = html(<IntroVideo forceState="soon" />);
   assert.match(text(h), /Video explicativo próximamente/);
@@ -302,22 +330,52 @@ test('REQ-PUB-03: con video publicado se reproduce solo bajo demanda: sin autopl
   assert.match(h, /aria-label="Aqua Sentinel"/);
 });
 
-test('REQ-PUB-05: el Hero tiene un selector English / Español, con inglés por defecto, y cambia sus textos', () => {
-  const en = html(<IntroSection onNavigate={noop} />);
-  assert.match(en, /role="group" aria-label="Language \/ Idioma"/);
-  assert.match(en, /<button[^>]*lang="en"[^>]*aria-pressed="true"[^>]*>English<\/button>/);
-  assert.match(en, /<button[^>]*lang="es"[^>]*aria-pressed="false"[^>]*>Español<\/button>/);
-  assert.match(en, /<div class="max-w-2xl space-y-4" lang="en">/, 'el idioma se declara para lectores de pantalla');
-  assert.match(text(en), /Intelligence to protect every drop\./);
-  assert.doesNotMatch(text(en), /Inteligencia para proteger cada gota/);
-  const es = html(<IntroSection onNavigate={noop} initialLang="es" />);
-  assert.match(es, /<button[^>]*lang="es"[^>]*aria-pressed="true"/);
-  assert.match(text(es), /Inteligencia para proteger cada gota\./);
-  assert.doesNotMatch(text(es), /Intelligence to protect every drop/);
-  assert.match(es, /<figure aria-label="Video explicativo de Aqua Sentinel" lang="es"/);
+test('REQ-I18N-01: el selector EN / ES vive en la cabecera, el Hero sigue el idioma activo y cambiarlo cambia los textos', () => {
+  try {
+    setLang('en');
+    const shellEn = shell();
+    assert.match(shellEn, /role="group" aria-label="Language \/ Idioma"/);
+    assert.match(shellEn, /<button[^>]*lang="en"[^>]*aria-pressed="true"[^>]*>en<\/button>/);
+    assert.match(shellEn, /<button[^>]*lang="es"[^>]*aria-pressed="false"[^>]*>es<\/button>/);
+    const en = html(<IntroSection onNavigate={noop} />);
+    assert.match(en, /<div class="max-w-2xl space-y-4" lang="en">/, 'el idioma se declara para lectores de pantalla');
+    assert.match(text(en), /Intelligence to protect every drop\./);
+    assert.doesNotMatch(text(en), /Inteligencia para proteger cada gota/);
+    assert.match(shellEn, /Skip to content/);
+    setLang('es');
+    const es = html(<IntroSection onNavigate={noop} />);
+    assert.match(shell(), /<button[^>]*lang="es"[^>]*aria-pressed="true"/);
+    assert.match(text(es), /Inteligencia para proteger cada gota\./);
+    assert.doesNotMatch(text(es), /Intelligence to protect every drop/);
+    assert.match(es, /<figure aria-label="Video explicativo de Aqua Sentinel" lang="es"/);
+    assert.match(shell(), /Saltar al contenido/);
+  } finally {
+    setLang('es');
+  }
 });
-
-test('REQ-PUB-05: sin versión en inglés, English avisa en inglés y no reproduce el video español', () => {
+test('REQ-I18N-01: lo que muestra la interfaz de una orden, de un veredicto y de la simulación sale en inglés sin restos en español', () => {
+  try {
+    setLang('en');
+    const sealed = { index: 12, action: 'REPAIR_VERIFIED', evidenceData: { workOrderId: 'OT-1', outcome: 'VERIFIED', assessment: { outcome: 'VERIFIED', code: 'verified', measuredAfter: 3, required: 3, anomalousInRow: 0, synthetic: true, reasons: ['3 mediciones consecutivas (texto del registro, en español)'] } } } as never;
+    const t1 = text(html(<WorkOrdersView {...ordersProps({ ledger: [sealed], onSimulateMeasurements: asyncNoop })} />));
+    assert.match(t1, /Repair verified with later measurements/);
+    assert.match(t1, /3 consecutive measurements after the closing within range \(simulated data\)/);
+    assert.match(t1, /Sealed in the Trust Ledger \(block #12\)/);
+    assert.match(t1, /Was the infrastructure restored\?/);
+    assert.match(t1, /Download the verifiable dossier/);
+    assert.doesNotMatch(t1, /texto del registro|Reparación|mediciones consecutivas|Descargar/, 'ni las frases del registro ni etiquetas en español');
+    const pending = text(html(<WorkOrdersView {...ordersProps()} />));
+    assert.match(pending, /Pending verification/);
+    assert.match(pending, /Cannot be confirmed yet|cannot be confirmed/i);
+    const home = text(html(<HomeView {...homeProps()} />));
+    assert.match(home, /Network status now/);
+    assert.match(home, /Interactive 3D simulation/);
+    assert.match(home, /The network is stable/);
+    assert.doesNotMatch(home, /Estado de la red|La red está estable|Simulación 3D/);
+  } finally {
+    setLang('es');
+  }
+});test('REQ-PUB-05: sin versión en inglés, English avisa en inglés y no reproduce el video español', () => {
   const h = html(<IntroVideo lang="en" forceState="soon" />);
   const t = text(h);
   assert.match(t, /English version coming soon/);
@@ -337,7 +395,7 @@ test('REQ-PUB-03: si el video no carga, se avisa y se vuelve a la portada', () =
   assert.doesNotMatch(h, /<video/);
 });
 
-test('REQ-PUB-01: el visitante consulta Incidentes y Órdenes sin recibir ninguna acción de escritura', () => {
+test('REQ-PUB-01, REQ-AI-10: el visitante consulta Incidentes y Órdenes sin recibir ninguna acción de escritura', () => {
   const d = diag({ primaryHypothesis: 'x', potentialImpact: 'y', recommendedAction: 'Reparar la brida', uncertaintyStatement: 'z', missingData: [], alternativeHypotheses: [] } as never);
   const inc = text(html(<IncidentsView {...incidentProps({ diagnoses: [d], role: 'VISITOR' })} />));
   assert.match(inc, /Tu rol \(Visitante\) permite consultar, no decidir/);

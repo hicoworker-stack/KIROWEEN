@@ -118,7 +118,7 @@ const visionInput = () => {
 
 // ───────── Etiquetas y clasificación ─────────
 
-test('motivos y etiquetas de respaldo distinguen timeout, api_error, respuesta inválida y falta de clave (REQ-AI-03)', () => {
+test('motivos y etiquetas de respaldo distinguen timeout, api_error, respuesta inválida y falta de clave (REQ-AI-03, REQ-AI-01)', () => {
   assert.equal(classifyFallbackReason(new Error('Vision analyze timeout (14000ms)')), 'timeout');
   assert.equal(classifyFallbackReason(new Error('503 Service Unavailable')), 'api_error');
   assert.equal(classifyFallbackReason(new Error('Respuesta inválida: observed')), 'invalid_response');
@@ -267,7 +267,7 @@ const diagInput = () => {
   return { anomaly, node, visionAnalysis: null, hydraulic: null, concordance };
 };
 
-test('diagnóstico determinista sin clave: completo, sin porcentajes y con nivel de evidencia (REQ-AI-03)', async () => {
+test('diagnóstico determinista sin clave: completo, sin porcentajes y con nivel de evidencia (REQ-AI-03, REQ-ARCH-02)', async () => {
   const d = await synthesizeDiagnosis(diagInput());
   assert.equal(d.providerMode, 'fallback-adapter');
   assert.equal(d.fallbackReason, 'missing_key');
@@ -366,7 +366,7 @@ test('createBudget usa un reloj inyectable (REQ-AI-03)', () => {
   assert.equal(b.remainingMs(), 0);
 });
 
-test('estado del proveedor: sin clave es honesto y con clave no afirma "verificado" hasta una llamada real (REQ-AI-03)', async () => {
+test('estado del proveedor: sin clave es honesto y con clave no afirma "verificado" hasta una llamada real (REQ-AI-08)', async () => {
   delete process.env.GEMINI_API_KEY;
   let s = getProviderStatus();
   assert.equal(s.aiMode, 'fallback-adapter');
@@ -384,7 +384,7 @@ test('estado del proveedor: sin clave es honesto y con clave no afirma "verifica
   assert.equal(getProviderStatus().geminiHealth.verified, true);
 });
 
-test('la sonda informa errores reales sin lanzar y no marca verificado (REQ-AI-03)', async () => {
+test('la sonda informa errores reales sin lanzar y no marca verificado (REQ-AI-08)', async () => {
   withGemini('err400');
   const p = await probeGemini();
   assert.equal(p.ok, false);

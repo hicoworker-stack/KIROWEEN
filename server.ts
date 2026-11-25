@@ -6,6 +6,7 @@ import { createServer as createViteServer } from 'vite';
 import { createApp } from './src/server/app';
 import { loadSecurityConfig } from './src/server/netSecurity';
 import { DEFAULT_STATE_PATH } from './src/server/persistence';
+import { ensureJudgeAccount } from './src/server/judgeAccount';
 import { refreshStalePublicState, seedPublicDemo } from './src/server/publicDemo';
 
 /**
@@ -20,8 +21,6 @@ process.on('unhandledRejection', (reason) => {
 });
 
 async function bootstrapServer() {
-  // Acceso libre por defecto: sin pantalla de inicio de sesión. AQUA_OPEN_ACCESS=0 vuelve a exigir cuenta.
-  process.env.AQUA_OPEN_ACCESS ??= '1';
   const publicMode = process.env.AQUA_PUBLIC_MODE === '1' || process.env.AQUA_PUBLIC_MODE === 'true';
   if (publicMode && process.env.AQUA_PUBLIC_KEEP_STATE !== '1' && refreshStalePublicState(DEFAULT_STATE_PATH)) {
     console.log('[modo público] El estado de la demostración tenía más de 12 h: se descartó para sembrarlo con datos frescos (AQUA_PUBLIC_KEEP_STATE=1 lo evita).');
@@ -30,6 +29,10 @@ async function bootstrapServer() {
   const handle = await createApp();
   const { app, authStore, setupCode } = handle;
   const isProd = process.env.NODE_ENV === 'production';
+  // Cuenta de evaluación (rol OPERATOR) definida solo por entorno; nunca se registra la contraseña.
+  const judge = await ensureJudgeAccount(authStore, process.env);
+  if (judge.status === 'created') console.log(`[evaluación] Cuenta de juez creada: @${judge.username} (rol OPERATOR). La contraseña viene de AQUA_JUDGE_PASSWORD.`);
+  else if (judge.status === 'rejected') console.error(`[evaluación] ${judge.reason}`);
 
   if (!isProd) {
     const vite = await createViteServer({ server: { middlewareMode: true }, appType: 'spa' });

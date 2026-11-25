@@ -1,3 +1,5 @@
+import { tr } from '../ui/engineText';
+import { t } from '../ui/i18n';
 import React, { useEffect, useRef, useState } from 'react';
 import { Upload, Eye, ShieldAlert, CheckCircle2, HelpCircle } from 'lucide-react';
 import { DEMO_PHOTO_ASSETS } from '../core/networkData';
@@ -8,7 +10,7 @@ interface VisionIntelligenceViewProps {
   selectedNodeId: string;
   onSelectNode: (nodeId: string) => void;
   visionAnalyses: VisionAnalysisResult[];
-  /** Solo OPERATOR y ADMIN pueden pedir anÃ¡lisis; el servidor lo exige igualmente. */
+  /** Solo OPERATOR y ADMIN pueden pedir análisis; el servidor lo exige igualmente. */
   canAnalyze?: boolean;
   onAnalyzeVision: (payload: {
     nodeId: string;
@@ -124,7 +126,7 @@ export const VisionIntelligenceView: React.FC<VisionIntelligenceViewProps> = ({
         imageMimeType: uploadedMime,
       });
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Error analizando la fotografía.');
+      setErrorMsg(err instanceof Error ? err.message : t('Error analizando la fotografía.', 'Error analyzing the photograph.'));
     } finally {
       setAnalyzing(false);
     }
@@ -134,10 +136,9 @@ export const VisionIntelligenceView: React.FC<VisionIntelligenceViewProps> = ({
     <div className="space-y-6">
       <section className="bg-[#0A1D29] border border-[#18364A] rounded-xl p-5 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-white">Visión Multimodal de Infraestructura</h2>
+          <h2 className="text-lg font-semibold text-white">{t('Visión Multimodal de Infraestructura', 'Multimodal infrastructure vision')}</h2>
           <p className="text-xs text-slate-400 mt-1">
-            Cruza reportes fotográficos con telemetría y topología. Distingue estrictamente hechos
-            visuales de inferencias e incertidumbre.
+            {t('Cruza reportes fotográficos con telemetría y topología. Distingue estrictamente hechos visuales de inferencias e incertidumbre.', 'It cross-checks photo reports with telemetry and topology. It strictly separates visual facts from inferences and uncertainty.')}
           </p>
         </div>
 
@@ -160,7 +161,7 @@ export const VisionIntelligenceView: React.FC<VisionIntelligenceViewProps> = ({
 
           <label className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-[#06131C] hover:bg-[#0F2736] text-slate-200 border border-[#234C66] rounded-lg cursor-pointer whitespace-nowrap shrink-0">
             <Upload className="w-3.5 h-3.5" />
-            Subir Foto
+            {t('Subir Foto', 'Upload photo')}
             <input type="file" accept="image/*" onChange={handlePhotoUpload} className="sr-only" />
           </label>
 
@@ -171,7 +172,7 @@ export const VisionIntelligenceView: React.FC<VisionIntelligenceViewProps> = ({
             className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold bg-cyan-500 hover:bg-cyan-400 text-[#041018] rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50"
           >
             <Eye className="w-3.5 h-3.5" />
-            {analyzing ? 'Analizando...' : 'Analizar Evidencia Multimodal'}
+            {analyzing ? t('Analizando...', 'Analyzing...') : t('Analizar Evidencia Multimodal', 'Analyze multimodal evidence')}
           </button>
         </div>
       </section>
@@ -191,21 +192,21 @@ export const VisionIntelligenceView: React.FC<VisionIntelligenceViewProps> = ({
             ) : (
               <div className="p-6 text-center space-y-2">
                 <Eye className="w-6 h-6 text-cyan-400 mx-auto" />
-                <p className="text-xs text-slate-300">{imageTitle}</p>
+                <p className="text-xs text-slate-300">{tr(imageTitle)}</p>
               </div>
             )}
           </div>
 
           <div className="space-y-1">
-            <p className="text-xs font-medium text-white">{imageTitle}</p>
+            <p className="text-xs font-medium text-white">{tr(imageTitle)}</p>
             <p className="text-xs font-mono text-slate-400">
-              Sensor asociado ({selectedNode.id}): {selectedNode.current.pressureBar} bar ·{' '}
+              {t('Sensor asociado', 'Linked sensor')} ({selectedNode.id}): {selectedNode.current.pressureBar} bar ·{' '}
               {selectedNode.current.flowLs} L/s · {selectedNode.current.turbidityNtu} NTU
             </p>
           </div>
 
           <div className="pt-2 border-t border-[#18364A] space-y-2">
-            <p className="text-xs text-slate-400">Fotografías de campo del escenario:</p>
+            <p className="text-xs text-slate-400">{t('Fotografías de campo del escenario:', 'Field photographs of the scenario:')}</p>
             <div className="grid grid-cols-3 gap-2">
               {DEMO_GALLERY.map((item) => (
                 <button
@@ -227,7 +228,7 @@ export const VisionIntelligenceView: React.FC<VisionIntelligenceViewProps> = ({
                   }`}
                 >
                   <div className="text-xs font-semibold truncate">{item.nodeId}</div>
-                  <div className="text-xs truncate mt-0.5">{item.title.split('—')[1]?.trim() || item.title}</div>
+                  <div className="text-xs truncate mt-0.5">{tr(item.title).split('—')[1]?.trim() || tr(item.title)}</div>
                 </button>
               ))}
             </div>
@@ -238,7 +239,7 @@ export const VisionIntelligenceView: React.FC<VisionIntelligenceViewProps> = ({
         <div className="lg:col-span-7 bg-[#0A1D29] border border-[#18364A] rounded-xl p-5 space-y-5">
           {errorMsg && (
             <div className="p-3 rounded-lg bg-[#06131C] border border-rose-500/40 text-xs text-rose-300">
-              {errorMsg}
+              {tr(errorMsg)}
             </div>
           )}
 
@@ -246,21 +247,21 @@ export const VisionIntelligenceView: React.FC<VisionIntelligenceViewProps> = ({
             <div className="py-12 text-center border border-dashed border-[#18364A] rounded-lg space-y-2">
               <Eye className="w-6 h-6 text-cyan-400 mx-auto" />
               <p className="text-sm text-slate-200">
-                Selecciona o sube una fotografía y pulsa "Analizar Evidencia Multimodal".
+                {t('Selecciona o sube una fotografía y pulsa Analizar Evidencia Multimodal.', 'Select or upload a photograph and press Analyze multimodal evidence.')}
               </p>
               <p className="text-xs text-slate-400 max-w-md mx-auto">
-                Un proveedor de visión (si está configurado) analiza la imagen SIN conocer las lecturas de {selectedNode.name}; luego el servidor compara su categoría con la del incidente. Sin proveedor, la imagen queda registrada como no analizada.
+                {t('Un proveedor de visión (si está configurado) analiza la imagen SIN conocer las lecturas de', 'A vision provider (if configured) analyzes the image WITHOUT knowing the readings of')} {selectedNode.name}{t('; luego el servidor compara su categoría con la del incidente. Sin proveedor, la imagen queda registrada como no analizada.', '; the server then compares its category with the incident. With no provider, the image is stored as not analyzed.')}
               </p>
             </div>
           ) : (
             <div className="space-y-5">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#18364A] pb-3">
                 <div>
-                  <h3 className="text-base font-semibold text-white">{latestForNode.imageTitle}</h3>
+                  <h3 className="text-base font-semibold text-white">{tr(latestForNode.imageTitle)}</h3>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    Proveedor: <span className="text-cyan-300">{latestForNode.providerUsed}</span> ·{' '}
-                    {latestForNode.analysisStatus === 'analyzed' ? 'Analizada por un proveedor de visión' : latestForNode.analysisStatus === 'pending' ? 'Análisis en curso' : 'NO analizada'} ·{' '}
-                    {latestForNode.anomalyId ? `Vinculada al incidente ${latestForNode.anomalyId}` : 'Sin incidente asociado (no cuenta como evidencia)'}
+                    {t('Proveedor', 'Provider')}: <span className="text-cyan-300">{tr(latestForNode.providerUsed)}</span> ·{' '}
+                    {latestForNode.analysisStatus === 'analyzed' ? t('Analizada por un proveedor de visión', 'Analyzed by a vision provider') : latestForNode.analysisStatus === 'pending' ? t('Análisis en curso', 'Analysis in progress') : t('NO analizada', 'NOT analyzed')} ·{' '}
+                    {latestForNode.anomalyId ? t(`Vinculada al incidente ${latestForNode.anomalyId}`, `Linked to incident ${latestForNode.anomalyId}`) : t('Sin incidente asociado (no cuenta como evidencia)', 'No linked incident (does not count as evidence)')}
                   </p>
                 </div>
                 <span className="text-xs font-mono text-slate-400">
@@ -269,10 +270,10 @@ export const VisionIntelligenceView: React.FC<VisionIntelligenceViewProps> = ({
               </div>
 
               <div className="p-3.5 rounded-lg bg-[#06131C] border border-[#234C66] text-xs text-slate-200 leading-relaxed">
-                <span className="font-semibold text-cyan-300">Correlación imagen-sensor: </span>
-                {latestForNode.sensorCorrelationSummary}
+                <span className="font-semibold text-cyan-300">{t('Correlación imagen-sensor', 'Image-sensor correlation')}: </span>
+                {tr(latestForNode.sensorCorrelationSummary)}
                 {latestForNode.analysisStatus === 'not_analyzed' && latestForNode.notAnalyzedReason && (
-                  <span className="block mt-1 text-amber-300">{latestForNode.notAnalyzedReason}</span>
+                  <span className="block mt-1 text-amber-300">{tr(latestForNode.notAnalyzedReason)}</span>
                 )}
               </div>
 
@@ -280,12 +281,12 @@ export const VisionIntelligenceView: React.FC<VisionIntelligenceViewProps> = ({
                 <div className="p-4 rounded-lg bg-[#06131C] border border-[#18364A] space-y-2">
                   <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400">
                     <CheckCircle2 className="w-4 h-4" />
-                    Lo observado directamente
+                    {t('Lo observado directamente', 'Directly observed')}
                   </div>
                   <ul className="space-y-1.5 text-xs text-slate-300 list-disc pl-4">
-                    {latestForNode.observed.length === 0 && <li className="list-none -ml-4 text-slate-400">Sin observaciones: la imagen no fue analizada.</li>}
+                    {latestForNode.observed.length === 0 && <li className="list-none -ml-4 text-slate-400">{t('Sin observaciones: la imagen no fue analizada.', 'No observations: the image was not analyzed.')}</li>}
                     {latestForNode.observed.map((item, idx) => (
-                      <li key={idx}>{item}</li>
+                      <li key={idx}>{tr(item)}</li>
                     ))}
                   </ul>
                 </div>
@@ -293,12 +294,12 @@ export const VisionIntelligenceView: React.FC<VisionIntelligenceViewProps> = ({
                 <div className="p-4 rounded-lg bg-[#06131C] border border-[#18364A] space-y-2">
                   <div className="flex items-center gap-1.5 text-xs font-semibold text-cyan-400">
                     <Eye className="w-4 h-4" />
-                    Inferencia al cruzar con sensores
+                    {t('Inferencia al cruzar con sensores', 'Inference from cross-checking with sensors')}
                   </div>
                   <ul className="space-y-1.5 text-xs text-slate-300 list-disc pl-4">
-                    {latestForNode.inferred.length === 0 && <li className="list-none -ml-4 text-slate-400">Sin inferencias.</li>}
+                    {latestForNode.inferred.length === 0 && <li className="list-none -ml-4 text-slate-400">{t('Sin inferencias.', 'No inferences.')}</li>}
                     {latestForNode.inferred.map((item, idx) => (
-                      <li key={idx}>{item}</li>
+                      <li key={idx}>{tr(item)}</li>
                     ))}
                   </ul>
                 </div>
@@ -306,11 +307,11 @@ export const VisionIntelligenceView: React.FC<VisionIntelligenceViewProps> = ({
                 <div className="p-4 rounded-lg bg-[#06131C] border border-[#18364A] space-y-2">
                   <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-400">
                     <ShieldAlert className="w-4 h-4" />
-                    No determinable solo por fotografía
+                    {t('No determinable solo por fotografía', 'Cannot be determined from a photograph alone')}
                   </div>
                   <ul className="space-y-1.5 text-xs text-slate-300 list-disc pl-4">
                     {latestForNode.cannotDetermine.map((item, idx) => (
-                      <li key={idx}>{item}</li>
+                      <li key={idx}>{tr(item)}</li>
                     ))}
                   </ul>
                 </div>
@@ -318,11 +319,11 @@ export const VisionIntelligenceView: React.FC<VisionIntelligenceViewProps> = ({
                 <div className="p-4 rounded-lg bg-[#06131C] border border-[#18364A] space-y-2">
                   <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-300">
                     <HelpCircle className="w-4 h-4 text-sky-400" />
-                    Datos o pruebas faltantes
+                    {t('Datos o pruebas faltantes', 'Missing data or tests')}
                   </div>
                   <ul className="space-y-1.5 text-xs text-slate-300 list-disc pl-4">
                     {latestForNode.missingData.map((item, idx) => (
-                      <li key={idx}>{item}</li>
+                      <li key={idx}>{tr(item)}</li>
                     ))}
                   </ul>
                 </div>

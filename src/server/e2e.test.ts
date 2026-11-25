@@ -399,7 +399,7 @@ test('REQ-RES-09/REQ-LED-07: tras un reset (archivado) el snapshot íntegro se r
   assert.ok((await get('/api/state/consistency')).data.issues.every((i: any) => i.severity !== 'error'));
 });
 
-test('REQ-AI-03: sin clave de Gemini la sonda es honesta y el estado no afirma "en vivo"', async () => {
+test('REQ-AI-08: sin clave de Gemini la sonda es honesta y el estado no afirma "en vivo"', async () => {
   const probe = await post('/api/ai/probe');
   assert.equal(probe.data.configured, false);
   assert.equal(probe.data.ok, false);

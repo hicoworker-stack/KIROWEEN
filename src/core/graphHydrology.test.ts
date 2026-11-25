@@ -13,7 +13,7 @@ import { applyFrameToNodes, buildScenarioFrames } from '../sim/scenarioGenerator
 
 const ts = '2026-11-19T12:00:00.000Z';
 
-test('getDownstreamNodeIds traverses directed hydraulic graph cleanly', () => {
+test('getDownstreamNodeIds traverses directed hydraulic graph cleanly (REQ-HYD-01)', () => {
   assert.deepEqual(getDownstreamNodeIds('N-TOMA-01', NETWORK_PIPES), ['N-PLANTA-02', 'N-TANQ-03', 'N-TRON-04', 'N-VALV-05', 'N-DIST-06', 'N-DIST-07']);
   assert.deepEqual(getDownstreamNodeIds('N-VALV-05', NETWORK_PIPES), ['N-DIST-07']);
   assert.deepEqual(getUpstreamNodeIds('N-DIST-06', NETWORK_PIPES), ['N-TRON-04']);
@@ -38,7 +38,7 @@ test('REGRESIÓN DE AUDITORÍA: la demanda ×1.5 no marca ningún nodo como desb
   assert.ok(evaluatePipeMassBalances(nodes, NETWORK_PIPES).every((b) => !b.flagged));
 });
 
-test('analyzeNetworkHydraulics propaga el riesgo aguas abajo y omite sensor_fault', () => {
+test('analyzeNetworkHydraulics propaga el riesgo aguas abajo y omite sensor_fault (REQ-HYD-01, REQ-ING-03)', () => {
   const nodes = createBaselineNodes();
   const intake = nodes.find((n) => n.id === 'N-TOMA-01')!;
   const contam = evaluateTelemetryReading({ ...intake.current, id: 'R', timestamp: ts, turbidityNtu: 14.8, chlorineMgL: 0.16, ph: 6.2 }, intake)!;

@@ -19,8 +19,8 @@
 - **REQ-WO-02**: Checklist interactivo y asignación de responsable persistidos y registrados en el ledger.
 - **REQ-WO-03**: Evidencia fotográfica de cierre validada, direccionada por SHA-256 y obligatoria para cerrar.
 - **REQ-HYD-02**: Localizar el tramo sospechoso y estimar la pérdida con el balance de masa, declarando incertidumbre; ver REQ-HYD-03..06 en la especificación 07.
-- **REQ-AI-02**: Reportar la concordancia entre canales como nivel de respaldo (sin porcentaje) y marcar conflicto cuando los canales se contradicen.
-- **REQ-AI-03**: Estado Gemini honesto (modelo, verificación real, errores) y visión de respaldo sin interpretar fotos no empaquetadas.
+- **REQ-AI-07**: Reportar la concordancia entre canales como nivel de respaldo (sin porcentaje) y marcar conflicto cuando los canales se contradicen.
+- **REQ-AI-08**: Estado Gemini honesto (modelo, verificación real, errores) y visión de respaldo sin interpretar fotos no empaquetadas.
 - **REQ-LED-02**: Entradas del ledger con `evidenceData` cubiertas por el hash; expediente portable verificable offline (ver REQ-LED-03..07).
 - **REQ-PER-02**: Informar riesgo de persistencia efímera y permitir snapshot verificado.
 - **REQ-DEMO-01**: Modo demo reproducible (`POST /api/demo/frankenstein`) con datos sintéticos rotulados, sin servicios externos.
@@ -30,8 +30,8 @@
 | `REQ-WO-02` | `src/core/workOrders.ts`, `src/components/WorkOrdersView.tsx`, `server.ts` | `src/core/workOrders.test.ts`, `src/server/e2e.test.ts` |
 | `REQ-WO-03` | `src/server/evidenceStore.ts`, `src/core/workOrders.ts`, `server.ts` | `src/server/evidenceStore.test.ts`, `src/server/e2e.test.ts` |
 | `REQ-HYD-02` | `src/core/hydraulicDiagnosis.ts`, `src/components/EvidencePanels.tsx` | `src/core/hydraulicDiagnosis.test.ts` |
-| `REQ-AI-02` | `src/core/evidenceConcordance.ts`, `src/components/EvidencePanels.tsx` | `src/core/evidenceConcordance.test.ts` |
-| `REQ-AI-03` | `src/server/aiProvider.ts`, `src/components/OperationsHealthPanel.tsx` | `src/server/aiProvider.test.ts`, `src/server/e2e.test.ts` |
+| `REQ-AI-07` | `src/core/evidenceConcordance.ts`, `src/components/EvidencePanels.tsx` | `src/core/evidenceConcordance.test.ts` |
+| `REQ-AI-08` | `src/server/aiProvider.ts`, `src/components/OperationsHealthPanel.tsx` | `src/server/aiProvider.test.ts`, `src/server/e2e.test.ts` |
 | `REQ-LED-02` | `src/core/cryptoLedger.ts`, `src/core/dossier.ts`, `scripts/verifyDossier.ts` | `src/core/cryptoLedger.test.ts`, `src/server/e2e.test.ts` |
 | `REQ-PER-02` | `src/server/snapshot.ts`, `src/components/OperationsHealthPanel.tsx` | `src/server/snapshot.test.ts` |
 | `REQ-DEMO-01` | `server.ts`, `src/App.tsx` | `src/server/e2e.test.ts` |

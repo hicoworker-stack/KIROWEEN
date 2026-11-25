@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AuthStatus, fetchAuthStatus, loginRequest, logoutRequest, SessionUser, setupRequest, setUnauthorizedHandler } from './api';
 import { setPasswordPrompter } from './adminFetch';
+import { t, useLang } from '../ui/i18n';
 
 /**
  * Puerta de acceso: sin sesión solo se muestra el inicio de sesión (o la configuración inicial). La interfaz oculta
@@ -51,18 +52,18 @@ function LoginForm({ status, onDone, onBack }: { status: AuthStatus; onDone: (s:
         setPassword('');
         onDone(await fetchAuthStatus());
       } else {
-        setError(typeof r.data.error === 'string' ? r.data.error : 'No se pudo iniciar sesión.');
+        setError(typeof r.data.error === 'string' ? r.data.error : t('No se pudo iniciar sesión.', 'Could not log in.'));
         if (r.status === 403 && r.data.code === 'csrf') await fetchAuthStatus();
       }
     } catch {
-      setError('No se pudo contactar con el servidor.');
+      setError(t('No se pudo contactar con el servidor.', 'Could not reach the server.'));
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <Card title={mode === 'setup' ? 'Crear el primer administrador' : 'Aqua Sentinel · Iniciar sesión'}>
+    <Card title={mode === 'setup' ? t('Crear el primer administrador', 'Create the first administrator') : t('Aqua Sentinel · Iniciar sesión', 'Aqua Sentinel · Log in')}>
       {status.needsAdmin && !status.setupAvailable && (
         <p className="text-xs text-amber-300">
           No hay usuarios. Un administrador del servidor debe crear el primero con <span className="font-mono">npm run auth -- create-admin &lt;usuario&gt;</span>.
@@ -72,41 +73,41 @@ function LoginForm({ status, onDone, onBack }: { status: AuthStatus; onDone: (s:
         {mode === 'setup' && (
           <>
             <label className="block text-xs text-slate-400">
-              Código de un solo uso (mostrado en la consola del servidor)
+              {t('Código de un solo uso (mostrado en la consola del servidor)', 'One-time code (shown in the server console)')}
               <input className={`${field} font-mono`} value={code} onChange={(e) => setCode(e.target.value)} autoComplete="off" required />
             </label>
             <label className="block text-xs text-slate-400">
-              Nombre visible
+              {t('Nombre visible', 'Display name')}
               <input className={field} value={displayName} onChange={(e) => setDisplayName(e.target.value)} autoComplete="name" />
             </label>
           </>
         )}
         <label className="block text-xs text-slate-400">
-          Usuario
+          {t('Usuario', 'Username')}
           <input className={field} value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" required autoFocus />
         </label>
         <label className="block text-xs text-slate-400">
-          Contraseña
+          {t('Contraseña', 'Password')}
           <input className={field} type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={mode === 'setup' ? 'new-password' : 'current-password'} required />
         </label>
-        {mode === 'setup' && <p className="text-[11px] text-slate-500">Mínimo 12 caracteres; usa al menos 3 tipos de carácter o 16 o más.</p>}
+        {mode === 'setup' && <p className="text-[11px] text-slate-500">{t('Mínimo 12 caracteres; usa al menos 3 tipos de carácter o 16 o más.', 'At least 12 characters; use at least 3 character types, or 16 or more.')}</p>}
         {error && (
           <p role="alert" className="text-xs text-rose-300">
             {error}
           </p>
         )}
         <button type="submit" disabled={busy} className={button}>
-          {busy ? 'Un momento…' : mode === 'setup' ? 'Crear administrador' : 'Entrar'}
+          {busy ? t('Un momento…', 'One moment…') : mode === 'setup' ? t('Crear administrador', 'Create administrator') : t('Entrar', 'Log in')}
         </button>
       </form>
       {onBack && (
         <button type="button" className="min-h-11 text-sm text-cyan-300 underline cursor-pointer" onClick={onBack}>
-          Volver a la demostración pública
+          {t('Volver a la demostración pública', 'Back to the public demonstration')}
         </button>
       )}
       {status.setupAvailable && (
         <button type="button" className="text-xs text-cyan-300 underline cursor-pointer" onClick={() => setMode(mode === 'setup' ? 'login' : 'setup')}>
-          {mode === 'setup' ? 'Ya tengo una cuenta' : 'Configuración inicial'}
+          {mode === 'setup' ? t('Ya tengo una cuenta', 'I already have an account') : t('Configuración inicial', 'Initial setup')}
         </button>
       )}
     </Card>
@@ -116,7 +117,7 @@ function LoginForm({ status, onDone, onBack }: { status: AuthStatus; onDone: (s:
 function PasswordDialog({ message, onResult }: { message: string; onResult: (v: string | null) => void }) {
   const [value, setValue] = useState('');
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" role="dialog" aria-modal="true" aria-label="Confirmar contraseña">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" role="dialog" aria-modal="true" aria-label={t('Confirmar contraseña', 'Confirm password')}>
       <form
         className="w-full max-w-sm rounded-xl border border-[#18364A] bg-[#08202E] p-5 space-y-3"
         onSubmit={(e) => {
@@ -128,10 +129,10 @@ function PasswordDialog({ message, onResult }: { message: string; onResult: (v: 
         <input className={field} type="password" value={value} onChange={(e) => setValue(e.target.value)} autoComplete="current-password" autoFocus required />
         <div className="flex gap-2">
           <button type="button" className="flex-1 rounded-md border border-[#18364A] text-slate-300 text-sm py-2 cursor-pointer" onClick={() => onResult(null)}>
-            Cancelar
+            {t('Cancelar', 'Cancel')}
           </button>
           <button type="submit" className="flex-1 rounded-md bg-cyan-500 text-[#041018] font-semibold text-sm py-2 cursor-pointer">
-            Confirmar
+            {t('Confirmar', 'Confirm')}
           </button>
         </div>
       </form>
@@ -140,6 +141,7 @@ function PasswordDialog({ message, onResult }: { message: string; onResult: (v: 
 }
 
 export function AuthGate({ children }: { children: (session: Session) => React.ReactNode }) {
+  useLang();
   const [status, setStatus] = useState<AuthStatus | null>(null);
   const [failed, setFailed] = useState(false);
   const [dialog, setDialog] = useState<{ message: string; resolve: (v: string | null) => void } | null>(null);
@@ -187,21 +189,21 @@ export function AuthGate({ children }: { children: (session: Session) => React.R
   if (failed) {
     return (
       <Card title="Aqua Sentinel">
-        <p className="text-sm text-slate-300">No se pudo contactar con el servidor.</p>
+        <p className="text-sm text-slate-300">{t('No se pudo contactar con el servidor.', 'Could not reach the server.')}</p>
         <button className={button} onClick={() => void refresh()}>
-          Reintentar
+          {t('Reintentar', 'Retry')}
         </button>
       </Card>
     );
   }
-  if (!status) return <Card title="Aqua Sentinel"><p className="text-sm text-slate-400">Comprobando sesión…</p></Card>;
+  if (!status) return <Card title="Aqua Sentinel"><p className="text-sm text-slate-400">{t('Comprobando sesión…', 'Checking session…')}</p></Card>;
   if (status.openAccess && (!status.authenticated || !status.user)) {
     return (
       <Card title="Aqua Sentinel">
-        <p className="text-sm text-slate-400">{retries.current >= 3 ? 'No se pudo abrir la sesión de invitado.' : 'Abriendo…'}</p>
+        <p className="text-sm text-slate-400">{retries.current >= 3 ? t('No se pudo abrir la sesión de invitado.', 'The guest session could not be opened.') : t('Abriendo…', 'Opening…')}</p>
         {retries.current >= 3 && (
           <button className={button} onClick={() => { retries.current = 0; void refresh(); }}>
-            Reintentar
+            {t('Reintentar', 'Retry')}
           </button>
         )}
       </Card>

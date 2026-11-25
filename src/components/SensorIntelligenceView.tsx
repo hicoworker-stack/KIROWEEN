@@ -1,3 +1,5 @@
+import { t } from '../ui/i18n';
+import { tr } from '../ui/engineText';
 import React, { useState } from 'react';
 import { Upload, Play, Pause, FileSpreadsheet, AlertCircle } from 'lucide-react';
 import { SAMPLE_CSV_PAYLOAD } from '../core/networkData';
@@ -24,12 +26,12 @@ const METRIC_OPTIONS: Array<{
   normalRange?: { min: number; max: number; label: string };
   tankOnly?: boolean;
 }> = [
-  { key: 'pressureBar', label: 'Presión Hidráulica', unit: 'bar' },
-  { key: 'flowLs', label: 'Caudal Volumétrico', unit: 'L/s' },
-  { key: 'turbidityNtu', label: 'Turbidez del Agua', unit: 'NTU' },
-  { key: 'chlorineMgL', label: 'Cloro Libre Residual', unit: 'mg/L', normalRange: { min: 0.3, max: 2.5, label: 'Rango 0.3–2.5 mg/L' } },
-  { key: 'levelPct', label: 'Nivel de Tanque', unit: '%', tankOnly: true },
-  { key: 'ph', label: 'pH', unit: 'pH', normalRange: { min: 6.5, max: 8.5, label: 'Rango 6.5–8.5' } },
+  { key: 'pressureBar', get label() { return t('Presión Hidráulica', 'Hydraulic pressure'); }, unit: 'bar' },
+  { key: 'flowLs', get label() { return t('Caudal Volumétrico', 'Volumetric flow'); }, unit: 'L/s' },
+  { key: 'turbidityNtu', get label() { return t('Turbidez del Agua', 'Water turbidity'); }, unit: 'NTU' },
+  { key: 'chlorineMgL', get label() { return t('Cloro Libre Residual', 'Residual free chlorine'); }, unit: 'mg/L', normalRange: { min: 0.3, max: 2.5, get label() { return t('Rango 0.3–2.5 mg/L', 'Range 0.3–2.5 mg/L'); } } },
+  { key: 'levelPct', get label() { return t('Nivel de Tanque', 'Tank level'); }, unit: '%', tankOnly: true },
+  { key: 'ph', label: 'pH', unit: 'pH', normalRange: { min: 6.5, max: 8.5, get label() { return t('Rango 6.5–8.5', 'Range 6.5–8.5'); } } },
 ];
 
 export const SensorIntelligenceView: React.FC<SensorIntelligenceViewProps> = ({
@@ -75,7 +77,7 @@ export const SensorIntelligenceView: React.FC<SensorIntelligenceViewProps> = ({
     try {
       const res = await onIngestCsv(csvInput);
       setIngestFeedback(
-        `Ingesta completada: ${res.ingestedCount} lectura(s) evaluadas por el motor determinista.`
+        t(`Ingesta completada: ${res.ingestedCount} lectura(s) evaluadas por el motor determinista.`, `Ingestion complete: ${res.ingestedCount} reading(s) evaluated by the deterministic engine.`)
       );
       setIngestErrors(res.errors);
     } finally {
@@ -88,16 +90,15 @@ export const SensorIntelligenceView: React.FC<SensorIntelligenceViewProps> = ({
       {/* Header & Controls */}
       <section className="bg-[#0A1D29] border border-[#18364A] rounded-xl p-5 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-white">Inteligencia de Sensores e Ingesta IoT</h2>
+          <h2 className="text-lg font-semibold text-white">{t('Inteligencia de Sensores e Ingesta IoT', 'Sensor intelligence and IoT ingestion')}</h2>
           <p className="text-xs text-slate-400 mt-1">
-            Comparación de series temporales sintéticas contra línea base y evaluación determinista
-            en tiempo real.
+            {t('Comparación de series temporales sintéticas contra línea base y evaluación determinista en tiempo real.', 'Synthetic time series compared against the baseline, evaluated by the deterministic engine in real time.')}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
           <label htmlFor="sensor-node-select" className="sr-only">
-            Seleccionar nodo de sensor
+            {t('Seleccionar nodo de sensor', 'Select sensor node')}
           </label>
           <select
             id="sensor-node-select"
@@ -116,7 +117,7 @@ export const SensorIntelligenceView: React.FC<SensorIntelligenceViewProps> = ({
             type="button"
             onClick={onToggleSimulator}
             disabled={!canIngest}
-            title={canIngest ? undefined : 'Tu rol solo permite consultar'}
+            title={canIngest ? undefined : t('Tu rol solo permite consultar', 'Your role is read-only')}
             className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
               isSimulatorRunning
                 ? 'bg-amber-500 hover:bg-amber-400 text-[#06131C]'
@@ -160,13 +161,13 @@ export const SensorIntelligenceView: React.FC<SensorIntelligenceViewProps> = ({
           </div>
 
           <span className="text-xs font-mono text-slate-400">
-            Muestras en ventana: {series.length} · Datos sintéticos simulados
+            {t('Muestras en ventana', 'Samples in window')}: {series.length} · {t('Datos sintéticos simulados', 'Simulated synthetic data')}
           </span>
         </div>
 
         {metricUnavailable ? (
           <div className="h-56 flex items-center justify-center text-center px-6 border border-dashed border-[#18364A] rounded-lg bg-[#071824] text-xs text-slate-400">
-            {selectedNode.name} no tiene sensor de nivel. Selecciona un tanque, una bocatoma o la planta para ver esta métrica.
+            {selectedNode.name} {t('no tiene sensor de nivel. Selecciona un tanque, una bocatoma o la planta para ver esta métrica.', 'has no level sensor. Select a tank, an intake or the plant to see this metric.')}
           </div>
         ) : (
           <TimeSeriesChart
@@ -184,13 +185,12 @@ export const SensorIntelligenceView: React.FC<SensorIntelligenceViewProps> = ({
       <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-6 bg-[#0A1D29] border border-[#18364A] rounded-xl p-5 space-y-4">
           <h3 className="text-base font-semibold text-white">
-            Evidencia Cuantificable del Motor Determinista
+            {t('Evidencia Cuantificable del Motor Determinista', 'Quantifiable evidence from the deterministic engine')}
           </h3>
           {nodeAnomalies.length === 0 ? (
             <div className="p-4 rounded-lg bg-[#06131C] border border-[#18364A] text-xs text-slate-400 leading-relaxed">
-              No se han disparado reglas de anomalía en <strong className="text-slate-200">{selectedNode.name}</strong>.
-              Todas las variables permanecen dentro de los umbrales hidráulicos y sanitarios
-              esperados.
+              {t('No se han disparado reglas de anomalía en', 'No anomaly rules have fired at')} <strong className="text-slate-200">{selectedNode.name}</strong>.
+              {t('Todas las variables permanecen dentro de los umbrales hidráulicos y sanitarios esperados.', 'All variables stay within the expected hydraulic and health thresholds.')}
             </div>
           ) : (
             <div className="space-y-3">
@@ -200,7 +200,7 @@ export const SensorIntelligenceView: React.FC<SensorIntelligenceViewProps> = ({
                   className="p-4 rounded-lg bg-[#06131C] border border-[#234C66] space-y-2.5"
                 >
                   <div className="flex items-center justify-between gap-2 text-xs">
-                    <span className="font-semibold text-white">{anom.title}</span>
+                    <span className="font-semibold text-white">{tr(anom.title)}</span>
                     <span className="font-mono text-rose-400">
                       Score {anom.priority.totalScore}/100
                     </span>
@@ -212,7 +212,7 @@ export const SensorIntelligenceView: React.FC<SensorIntelligenceViewProps> = ({
                           Regla {rule.ruleId} · Observado: {rule.observedValue} vs Base:{' '}
                           {rule.baselineValue} ({rule.deltaPct >= 0 ? `+${rule.deltaPct}%` : `${rule.deltaPct}%`})
                         </div>
-                        <p className="text-slate-400 leading-relaxed">{rule.explanation}</p>
+                        <p className="text-slate-400 leading-relaxed">{tr(rule.explanation)}</p>
                       </div>
                     ))}
                   </div>
@@ -225,14 +225,14 @@ export const SensorIntelligenceView: React.FC<SensorIntelligenceViewProps> = ({
         <div className="lg:col-span-6 bg-[#0A1D29] border border-[#18364A] rounded-xl p-5 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h3 className="text-base font-semibold text-white">Ingesta Manual / Archivo CSV</h3>
+              <h3 className="text-base font-semibold text-white">{t('Ingesta Manual / Archivo CSV', 'Manual ingestion / CSV file')}</h3>
               <p className="text-xs text-slate-400">
-                Pega filas CSV o carga un archivo local para inyectar telemetría al motor.
+                {t('Pega filas CSV o carga un archivo local para inyectar telemetría al motor.', 'Paste CSV rows or load a local file to feed telemetry to the engine.')}
               </p>
             </div>
             <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[#06131C] hover:bg-[#0F2736] text-cyan-300 border border-[#234C66] rounded-lg cursor-pointer whitespace-nowrap shrink-0">
               <Upload className="w-3.5 h-3.5" />
-              Subir .CSV
+              {t('Subir .CSV', 'Upload .CSV')}
               <input
                 type="file"
                 accept=".csv,text/csv"
@@ -243,7 +243,7 @@ export const SensorIntelligenceView: React.FC<SensorIntelligenceViewProps> = ({
           </div>
 
           <textarea
-            aria-label="Contenido CSV de telemetría"
+            aria-label={t('Contenido CSV de telemetría', 'Telemetry CSV content')}
             rows={5}
             value={csvInput}
             onChange={(e) => setCsvInput(e.target.value)}
@@ -257,17 +257,17 @@ export const SensorIntelligenceView: React.FC<SensorIntelligenceViewProps> = ({
               className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-cyan-300 cursor-pointer"
             >
               <FileSpreadsheet className="w-3.5 h-3.5" />
-              Cargar plantilla de ejemplo
+              {t('Cargar plantilla de ejemplo', 'Load sample template')}
             </button>
 
             <button
               type="button"
               disabled={submitting || !canIngest}
-              title={canIngest ? undefined : 'Tu rol solo permite consultar'}
+              title={canIngest ? undefined : t('Tu rol solo permite consultar', 'Your role is read-only')}
               onClick={handleIngestSubmit}
               className="px-4 py-2 text-xs font-semibold bg-cyan-500 hover:bg-cyan-400 text-[#041018] rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50"
             >
-              {submitting ? 'Procesando...' : 'Ingestar y Evaluar CSV'}
+              {submitting ? t('Procesando...', 'Processing...') : t('Ingestar y Evaluar CSV', 'Ingest and evaluate CSV')}
             </button>
           </div>
 
@@ -280,11 +280,11 @@ export const SensorIntelligenceView: React.FC<SensorIntelligenceViewProps> = ({
             <div className="text-xs text-rose-300 bg-[#06131C] border border-rose-500/30 rounded-lg p-3 space-y-1">
               <div className="flex items-center gap-1.5 font-semibold">
                 <AlertCircle className="w-3.5 h-3.5" />
-                Errores de validación CSV:
+                {t('Errores de validación CSV:', 'CSV validation errors:')}
               </div>
               {ingestErrors.map((err, idx) => (
                 <p key={idx} className="font-mono">
-                  {err}
+                  {tr(err)}
                 </p>
               ))}
             </div>

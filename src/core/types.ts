@@ -59,7 +59,12 @@ export interface NetworkNode {
    * Se cerró una orden en este punto y todavía no llegó ninguna medición posterior al cierre (corrección de F2).
    * Mientras exista, `current` es la última medición ANTERIOR al cierre y el punto no se presenta como recuperado.
    */
-  pendingVerification?: { workOrderId: string; closedAt: string };
+  pendingVerification?: {
+    workOrderId: string;
+    closedAt: string;
+    /** Veredicto provisional (REQ-REP-02): cuántas mediciones posteriores hay y por qué todavía no basta. Ausente hasta la primera medición posterior. */
+    assessment?: { outcome: 'PENDING' | 'INCONCLUSIVE' | 'VERIFIED' | 'REOPENED'; measuredAfter: number; required: number; anomalousInRow: number; synthetic: boolean; reasons: string[] };
+  };
   assetCode: string;
   material: string;
   diameterMm: number;

@@ -1,6 +1,7 @@
 import { sha256Canonical } from './canonical';
 import { auditOrderAgainstLedger } from './consistency';
 import { sha256Hex, verifyLedgerChain } from './cryptoLedger';
+import { recomputeSealedVerdict, repairOutcomeFromLedger, RepairEvidenceData } from './repairVerification';
 import {
   AnomalyEvent,
   AquaBrainDiagnosis,
@@ -196,6 +197,39 @@ export async function verifyDossierIntegrity(d: DecisionDossier): Promise<Dossie
     );
   }
 
+  // REQ-REP-04: la verificación posterior. Si el ledger afirma que la reparación quedó VERIFIED o REOPENED, el verificador
+  // recomputa ese veredicto con las lecturas selladas y las mismas reglas; no confía en lo que el servidor dijo.
+  const repair = repairOutcomeFromLedger(d.ledger, orderId);
+  if (!repair) {
+    add('repair-verification', 'Verificación posterior a la reparación', true, 'Pendiente: el expediente todavía no afirma que la reparación funcionó (no hay mediciones posteriores suficientes).');
+  } else {
+    const data = dataOf(repair.entry) as unknown as RepairEvidenceData;
+    const snap = d.sealed.networkSnapshot?.nodes?.find((n) => n.id === data.nodeId);
+    const problems: string[] = [];
+    if (!snap) problems.push(`el nodo ${data.nodeId} no figura en el expediente`);
+    if (repair.entry.index <= (closedEntry?.index ?? Infinity)) problems.push('el veredicto aparece antes del cierre de la orden');
+    // El corte de evidencia es lo más nuevo entre el cierre y la última lectura que el punto ya tenía al cerrar (ventana sellada).
+    if (closedEntry) {
+      const lastKnown = Math.max(...(d.sealed.telemetry?.window ?? []).map((r) => Date.parse(r.timestamp)).filter(Number.isFinite), 0);
+      const expectedCutoff = Math.max(Date.parse(closedEntry.timestamp), lastKnown);
+      if (Math.abs(Date.parse(data.closedAt) - expectedCutoff) > 5000) problems.push('el corte de evidencia usado no coincide con el cierre sellado y la última lectura previa');
+    }
+    if (snap && Array.isArray(data.readings)) {
+      const node = { id: snap.id, name: snap.id, sector: '', populationServed: 0, baseline: snap.baseline };
+      const { matches, recomputed } = recomputeSealedVerdict(node, data);
+      if (!matches) problems.push(`recomputado con las lecturas selladas da ${recomputed.outcome} con ${recomputed.measuredAfter} medición(es), no ${data.outcome}`);
+    } else {
+      problems.push('el veredicto no incluye las lecturas que lo sustentan');
+    }
+    add(
+      'repair-verification',
+      'El veredicto de la reparación se recomputa con las mediciones selladas',
+      problems.length === 0,
+      problems.length === 0
+        ? `${repair.outcome}: ${data.assessment.measuredAfter} medición(es) posteriores al cierre${data.assessment.synthetic ? ' (datos simulados)' : ''}; el verificador obtiene el mismo resultado.`
+        : problems.join('; ')
+    );
+  }
   add(
     'metadata',
     'Los metadatos (datos sintéticos) coinciden con el contenido sellado',
