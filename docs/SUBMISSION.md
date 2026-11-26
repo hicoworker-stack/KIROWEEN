@@ -182,10 +182,10 @@ We do not quote global volume figures (for example Liemberger and Wyatt, 2019, *
 
 State on 2026-11-26: branch `main`, clean, `HEAD` = latest local commit. Both remotes are ancestors of `HEAD`, so either push is a plain fast-forward; no force is needed.
 
-| Remote | Repository | Pending commits | Who can push |
+| Remote | Repository | Pending commits (check with) | Who can push |
 | --- | --- | --- | --- |
-| `upstream` | FRANKPIERRECARDENAS/KIROWEEN (original, public) | 9 | The account currently logged in (admin) |
-| `origin` | hicoworker-stack/KIROWEEN (public fork) | 3 | Only an account with write access to that fork |
+| `upstream` | FRANKPIERRECARDENAS/KIROWEEN (original, public) | `git rev-list --count upstream/main..HEAD` | The account currently logged in (admin) |
+| `origin` | hicoworker-stack/KIROWEEN (public fork) | `git rev-list --count origin/main..HEAD` | Only an account with write access to that fork |
 
 ```bash
 git status                       # must be clean
