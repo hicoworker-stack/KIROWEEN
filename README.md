@@ -159,4 +159,4 @@ Use HTTPS in front in production: the session cookie is `Secure` with the `__Hos
 
 ## License
 
-MIT. See [LICENSE](LICENSE). Submission notes are in [docs/SUBMISSION.md](docs/SUBMISSION.md) and the 3-minute demo storyboard is in [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
+MIT. See [LICENSE](LICENSE). The Devpost submission package (form text, rules-to-evidence matrix, release procedure) is in [docs/SUBMISSION.md](docs/SUBMISSION.md) and the 3-minute demo storyboard is in [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).

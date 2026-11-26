@@ -28,13 +28,13 @@ Every step below was executed click by click in a real browser on 2026-11-25, in
 
 ## Storyboard
 
-Narration is 295 words, about 1.8 words per second overall and never above 2.3 in any scene, which leaves room for pauses. Times are cumulative.
+Narration is 296 words, about 1.8 words per second overall and at most 2.4 in any scene, which leaves room for pauses. Times are cumulative.
 
 ### 1 · Problem (0:00–0:13)
 - **Screen:** Home, hero. ([01-home.png](storyboard/01-home.png))
 - **Action:** none.
 - **Jury sees:** the product name and the SIMULATED badge.
-- **Say:** "Water networks lose water through leaks that are hard to see. And in most workflows, a repair counts as done when the ticket closes, without any data showing it worked."
+- **Say:** "Water networks lose water through leaks that are hard to see. And in a report-and-close workflow, a repair counts as done when the ticket closes, with no data showing it worked."
 
 ### 2 · Diagnosis that knows its limits (0:13–0:50)
 - **Screen:** Home, scroll to the 3D model. Click **Next step** twice to reach **STEP 3 OF 5 · INVESTIGATION**.
@@ -46,7 +46,7 @@ Narration is 295 words, about 1.8 words per second overall and never above 2.3 i
 - **Screen:** **Menu → Advanced tools → Demonstration**, click **1. Trunk-main leak**. Then **Menu → Incidents** and open the incident.
 - **Action:** scroll through **Evidence**, then click **Accept and create the work order**.
 - **Jury sees:** the evidence channels with their provenance (MEASURED, INFERRED, SIMULATED), a photo marked as *not analyzed, not used as evidence*, the alternatives and what is missing ([04](storyboard/04-incident-evidence.png)).
-- **Say:** "The same leak, now as an incident. The system shows what supports it, what it could not rule out, and that an unanalyzed photo does not count as evidence. A person decides. I accept, and a work order is created. The decision is recorded under my name."
+- **Say:** "The same leak, now as an incident. The system shows what supports it, what it could not rule out, and that an unanalyzed photo does not count as evidence. A person decides. I accept, and a work order is created. The ledger records who made the decision."
 
 ### 4 · Intervention (1:15–1:42)
 - **Screen:** **Menu → Work orders**, select the order.
