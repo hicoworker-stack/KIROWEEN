@@ -1,0 +1,16 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Ask before editing the verified core",
+      "trigger": "PreToolUse",
+      "description": "Before the agent writes, moves or renames src/core/hydraulicDiagnosis.ts, repairVerification.ts, cryptoLedger.ts or dossier.ts, asks the human to confirm. These four files are the three differentials. Dev-only; see scripts/kiro-guard.mjs.",
+      "matcher": "([Ww]rite|[Rr]eplace|[Aa]ppend|[Ee]dit|[Rr]elocate|[Rr]ename|[Dd]elete)",
+      "action": {
+        "type": "command",
+        "command": "node scripts/kiro-guard.mjs core",
+        "timeout": 15
+      }
+    }
+  ]
+}

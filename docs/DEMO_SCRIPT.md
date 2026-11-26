@@ -34,7 +34,7 @@ Narration is 296 words, about 1.8 words per second overall and at most 2.4 in an
 - **Screen:** Home, hero. ([01-home.png](storyboard/01-home.png))
 - **Action:** none.
 - **Jury sees:** the product name and the SIMULATED badge.
-- **Say:** "Water networks lose water through leaks that are hard to see. And in a report-and-close workflow, a repair counts as done when the ticket closes, with no data showing it worked."
+- **Say:** "Leaks hide underground. In a report-and-close workflow, a repair counts as done when the ticket closes. Aqua Sentinel asks: what do we know, did the repair work, and can anyone check?"
 
 ### 2 · Diagnosis that knows its limits (0:13–0:50)
 - **Screen:** Home, scroll to the 3D model. Click **Next step** twice to reach **STEP 3 OF 5 · INVESTIGATION**.

@@ -77,9 +77,12 @@ Every datum carries its provenance: **MEASURED** (sensor), **DECLARED** (a perso
 - **Spec-driven:** 12 specifications in `.kiro/specs/` with 89 requirements (`REQ-*`). Spec 12 documents the access model, the repair verification and the engine-driven 3D model. It was written after the implementation, to bring those changes under the same traceability rule as the rest.
 - **Strict traceability:** `npm run verify:kiro` fails if a requirement is defined twice, has no table row, cites a file that does not exist, cites no test file, or cites test files that never mention the requirement. "Verified by lint" no longer counts. `src/kiroTrace.test.ts` pins this behaviour and checks the real repository.
 - **Steering:** `.kiro/steering/water-domain-rules.md` holds 23 domain rules (epistemic honesty, "no recovery without measurement", "nothing is simulated silently") and tests enforce them.
-- **Integrity pipeline:** `.kiro/hooks/verify-integrity.json` lists the checks (all tests, type-check, production build) that `npm run verify:kiro` runs after checking traceability. It is a configuration file read by `scripts/verifyKiro.ts`, not a Kiro IDE event hook.
-- **Property-based testing (fast-check):** used where examples are not enough. The invariants of `repairVerification` are checked on random series: `VERIFIED` never appears without three usable post-closure measurements, stale data never changes a verdict, arrival order is irrelevant, and a sealed verdict always recomputes to itself.
-- **Not used, on purpose:** MCP servers, custom agents and Kiro Crew. Nothing in this project needed them, and adding them to look sophisticated would not be honest.
+- **Agent hooks:** two `PreToolUse` hooks in `.kiro/hooks/` (added Nov 26) run `scripts/kiro-guard.mjs`. One blocks Git history rewrites (force-push, `reset --hard`, `rebase`, `commit --amend`, `filter-branch`). The other makes Kiro ask the human before the agent edits `hydraulicDiagnosis.ts`, `repairVerification.ts`, `cryptoLedger.ts` or `dossier.ts`. Both were exercised in live Kiro sessions. `src/kiroHooks.test.ts` checks their format, that their matchers compile, and the guard's decisions. They work when this folder is opened as the Kiro workspace.
+- **Integrity pipeline:** `.kiro/verify-integrity.json` lists the checks (all tests, type-check, production build) that `npm run verify:kiro` runs after checking traceability. It is a configuration file read by `scripts/verifyKiro.ts`, not a Kiro hook.
+- **Property-based testing (fast-check, added Nov 25):** used where examples are not enough. The invariants of `repairVerification` are checked on random series: `VERIFIED` never appears without three usable post-closure measurements, stale data never changes a verdict, arrival order is irrelevant, and a sealed verdict always recomputes to itself. These are hand-written properties, not Kiro's spec-derived PBT.
+- **Not used:** MCP servers, custom agents and Powers. Nothing in this project needed them.
+
+The full write-up, with what was done in each period, is in [docs/SUBMISSION.md](docs/SUBMISSION.md).
 
 ## Tests and evidence
 

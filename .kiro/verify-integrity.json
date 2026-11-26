@@ -1,7 +1,7 @@
 {
-  "name": "aqua-sentinel-integrity-hook",
+  "name": "aqua-sentinel-integrity-pipeline",
   "version": "1.3.0",
-  "description": "Hook de verificación continua para trazabilidad Kiro REQ-*, motor determinista, hidrología de grafo, persistencia, proveedor IA, ledger SHA-256, TypeScript y compilación.",
+  "description": "Pipeline de verificación (no es un hook de Kiro: lo lee scripts/verifyKiro.ts) para trazabilidad Kiro REQ-*, motor determinista, hidrología de grafo, persistencia, proveedor IA, ledger SHA-256, TypeScript y compilación.",
   "triggers": ["onSave:src/**/*.ts", "onSave:.kiro/specs/*.md", "preBuild"],
   "traceability": {
     "specsDir": ".kiro/specs",

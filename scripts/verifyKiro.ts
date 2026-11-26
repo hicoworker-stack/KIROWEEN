@@ -27,7 +27,7 @@ interface VerifyIntegrityHook {
   checks: HookCheck[];
 }
 const ROOT = process.cwd();
-const HOOK_PATH = path.resolve(ROOT, '.kiro/hooks/verify-integrity.json');
+const HOOK_PATH = path.resolve(ROOT, '.kiro/verify-integrity.json');
 const FILE_RE = /^(?:src|scripts)\/[A-Za-z0-9_./-]+\.[a-z]+$|^server\.ts$/;
 const TEST_RE = /\.test\.tsx?$/;
 
@@ -103,7 +103,7 @@ function validateSpecsAndTraceability(hook: VerifyIntegrityHook): string[] {
   if (diskTests.length === 0) fail('No hay archivos de prueba en src/.');
   const unitCheckCmd = hook.checks.map((c) => c.command).join(' ');
   const coversAll = unitCheckCmd.includes('src/**/*.test.ts') && unitCheckCmd.includes('src/**/*.test.tsx');
-  for (const t of diskTests) if (!coversAll && !unitCheckCmd.includes(t)) fail(`El archivo de prueba ${t} no está incluido en .kiro/hooks/verify-integrity.json`);
+  for (const t of diskTests) if (!coversAll && !unitCheckCmd.includes(t)) fail(`El archivo de prueba ${t} no está incluido en .kiro/verify-integrity.json`);
 
   const specs = Object.fromEntries(specFiles.map((f) => [`${specsRel}/${f}`, fs.readFileSync(path.join(specsDir, f), 'utf8')]));
   const tests = Object.fromEntries(diskTests.map((f) => [f, fs.readFileSync(path.resolve(ROOT, f), 'utf8')]));
@@ -114,10 +114,10 @@ function validateSpecsAndTraceability(hook: VerifyIntegrityHook): string[] {
 }
 
 function main() {
-  if (!fs.existsSync(HOOK_PATH)) fail('No se encontró .kiro/hooks/verify-integrity.json');
+  if (!fs.existsSync(HOOK_PATH)) fail('No se encontró .kiro/verify-integrity.json');
   const hook = JSON.parse(fs.readFileSync(HOOK_PATH, 'utf8')) as VerifyIntegrityHook;
   if (!Array.isArray(hook.checks) || hook.checks.length === 0) fail('verify-integrity.json no define checks.');
-  console.log(`[verify:kiro] Ejecutando hook "${hook.name}" v${hook.version}...`);
+  console.log(`[verify:kiro] Ejecutando pipeline "${hook.name}" v${hook.version}...`);
   validateSpecsAndTraceability(hook);
   for (const check of hook.checks) {
     console.log(`\n[verify:kiro] -> [${check.id}] ${check.command}`);

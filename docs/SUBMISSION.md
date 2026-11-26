@@ -18,7 +18,7 @@ A water-leak diagnosis that admits what it cannot conclude, and a repair that on
 Frankenstein. No bonus category is claimed. `⟨OWNER: add a bonus category only if you meet its separate requirements, for example a public #KiroweenHackathon26 post for Social Blitz.⟩`
 
 ### Built with
-TypeScript, Node.js, Express, React 19, Vite, Tailwind CSS, three.js, Node crypto (SHA-256, Ed25519), IndexedDB, fast-check, epanet-js (EPANET 2.2), Kiro IDE. Optional and not validated with real credentials: Google Gemini (`@google/genai`).
+TypeScript, Node.js, Express, React 19, Vite, Tailwind CSS, three.js, Node crypto (SHA-256, Ed25519), IndexedDB, fast-check, epanet-js (EPANET 2.2), Kiro IDE (specs, steering, agent hooks). Optional and not validated with real credentials: Google Gemini (`@google/genai`).
 
 ### Links
 - Code: `⟨OWNER: public GitHub URL after pushing⟩`
@@ -82,12 +82,36 @@ Validation with real network data from a utility partner, calibration of the 3-n
 
 ### How we used Kiro (required write-up)
 
-- **Kiro IDE.** The final integration and audit phase was done with the Kiro agent in Kiro IDE: the repair-verification loop, the engine-driven 3D model, the bilingual presentation layer, and a release audit that found and fixed real defects. `⟨OWNER: describe how you used Kiro in the first days (Nov 18–23), and whether you tried CLI, Web or Crew.⟩`
-- **Spec-driven development.** `.kiro/specs/` holds 12 specifications with 89 requirements (`REQ-*`). Each requirement has a traceability row naming the code and the test that covers it. `npm run verify:kiro` turns this into a gate. It fails if a requirement is defined twice, has no row, cites a file that does not exist, or cites a test that never mentions it. Then it runs all tests, the type-check and the build. The gate itself has been audited: it once skipped two requirements whose IDs contained digits, and we fixed the IDs so the tool really checks all 89. Spec 12 was written after its implementation, and it says so. `⟨OWNER: one or two sentences on how specs compared with vibe coding for you.⟩`
-- **Steering.** `.kiro/steering/water-domain-rules.md` holds 23 domain rules that shape every answer. Examples: "distinguish measured evidence from inference and missing data", "no recovery without measurement", "nothing is simulated silently". Key rules are backed by tests, so breaking them fails the build instead of depending on the agent remembering them. For example, the repair-loop tests fail if a point is shown as recovered without post-closure measurements, and the intro-video tests fail if a missing video is replaced by a fake playback.
-- **Property-based testing.** fast-check properties on the repair verdict: `VERIFIED` requires three usable post-closure measurements; data older than the closing never changes a verdict; arrival order does not matter; a later pair of anomalous readings reopens a verified repair; and a sealed verdict always recomputes to itself. `⟨OWNER: if a property ever failed and revealed a bug, say which.⟩`
-- **Agent hooks.** We did not use Kiro event hooks. `.kiro/hooks/verify-integrity.json` is the check list that `npm run verify:kiro` runs, read by our own script.
-- **Custom agents, MCP, Powers, Kiro Crew.** Not used. The project did not need them, and we chose not to add them for appearance.
+Our strategy was to let the agent write code quickly, and to make the repository itself decide whether that code is acceptable. Kiro's specs say what must be true. Its steering says how the agent must think about water data. Its hooks stop the agent from doing what the project forbids. A gate checks that every requirement is backed by a test that names it. The agent writes; the specs, tests and hooks decide.
+
+We separate two periods, because the tools were not all used from the start.
+
+**Nov 18–23: building the product.** `⟨OWNER: 2–4 sentences, in your own words, on how you used Kiro in this period: which interface, what you asked it to do, what you wrote yourself.⟩` What the repository shows for this period:
+- The first commit (Nov 18) already contains five specifications with 16 requirements, the steering file and the check list for the integrity pipeline.
+- A new specification followed almost every day. Two of them are remediation specs written after audits: *07 · Remediation phase 1* (25 requirements, Nov 19) and *11 · Audit fixes* (Nov 22).
+- The steering file grew from 6 lines to 23 numbered rules.
+
+**Nov 23–26: integration, release audit and guard rails, done with the Kiro IDE agent (Kiro 1.4.215).** The repair-verification loop, the engine-driven 3D model, the bilingual presentation layer, the strict traceability gate, the property-based tests and the agent hooks all date from this period.
+
+- **Spec-driven development.** `.kiro/specs/` holds 12 specifications with 89 requirements (`REQ-*`). Each requirement has a traceability row that names its code and the test that covers it, and 46 of the 47 test files cite requirement IDs (the exception tests the hooks, which are tooling, not a product requirement). `npm run verify:kiro` turns this into a gate. It fails if a requirement is defined twice, has no row, cites a file that does not exist, or cites a test that never mentions it. Then it runs all tests, the type-check and the build. The strict version of the gate dates from Nov 25 (`src/kiroTrace.test.ts` pins its behaviour). We also audited the gate itself: its ID pattern skipped two requirements whose IDs contained a digit, so it reported 87 while the docs said 89. We renamed the IDs, and it now checks all 89. Spec 12 was written after its implementation, and it says so. Our specs are single Markdown files with a requirement list and a traceability table, not Kiro's three-file `requirements.md` / `design.md` / `tasks.md` format, and the repository has no Kiro task runs. `⟨OWNER: one or two sentences on how writing specs first compared with prompting directly ("vibe coding") for you.⟩`
+- **Steering.** `.kiro/steering/water-domain-rules.md` is always included in the agent's context. Its 23 rules encode the project's domain decisions, for example "distinguish measured evidence from inference and missing data", "no recovery without measurement" and "nothing is simulated silently". Key rules are backed by tests, so breaking them fails the build instead of depending on the agent remembering them. The repair-loop tests fail if a point is shown as recovered without post-closure measurements, and the intro-video tests fail if a missing video is replaced by a fake playback.
+- **Agent hooks (added Nov 26).** Two `PreToolUse` command hooks in `.kiro/hooks/`, both running `scripts/kiro-guard.mjs`:
+  - *Block Git history rewrites* stops the agent before it runs force-push, `reset --hard`, `rebase`, `commit --amend` or `filter-branch`.
+  - *Ask before editing the verified core* makes Kiro ask the human before the agent writes, moves or renames the four files that implement the three differentials (`hydraulicDiagnosis.ts`, `repairVerification.ts`, `cryptoLedger.ts`, `dossier.ts`).
+  - We chose `PreToolUse` on purpose. Kiro's documentation says the output of a file-save hook is not returned to the agent, so a "run the tests on save" hook would not have informed it of anything. A `PreToolUse` hook can stop an action before it happens.
+  - Both hooks were exercised in real Kiro sessions. A fresh agent session tried a shell command containing `git reset --hard`, and Kiro refused to run it with the hook's message. A write to a file named like the core produced a confirmation prompt for the human.
+  - The first live run found a real defect. We had written the matchers with `(?i)`, which JavaScript regular expressions do not accept, so Kiro silently disabled both hooks and only logged a warning. `src/kiroHooks.test.ts` now checks that every hook uses Kiro's v1 format and that its matchers compile and select the intended tools. It fails on exactly that mistake.
+  - An earlier save-triggered hook (Nov 24) had been created outside the repository folder and could not have run. We do not count it.
+- **Property-based testing (added Nov 25).** We wrote fast-check properties into the test suite for the repair verdict:
+  - `VERIFIED` requires three usable post-closure measurements and no hydraulic leak.
+  - A series with no post-closure measurement is never anything but `PENDING`.
+  - Data older than the closing never changes a verdict.
+  - Arrival order does not matter.
+  - Two later anomalous readings reopen a verified repair.
+  - A sealed verdict always recomputes to itself.
+
+  We did not use Kiro's spec-driven PBT feature, which derives properties from EARS requirements. No failing property is recorded in the repository. `⟨OWNER: if a property or test ever caught a real bug during your work, describe it; otherwise leave this sentence out.⟩`
+- **Not used: custom agents, MCP servers, Powers.** We considered a custom auditing agent and decided against it. The hooks apply to any agent that works in this repository, while a custom agent would only constrain itself. Nothing in the product needed MCP or a Power. `⟨OWNER: confirm whether you used Kiro CLI, Kiro Web or Kiro Crew for this project.⟩`
 
 ### Testing instructions for judges
 
@@ -117,7 +141,7 @@ Source: [official rules](https://kiroween.devpost.com/rules), read on 2026-11-25
 | Requirement (paraphrased from the rules) | Evidence in Aqua Sentinel | Status |
 | --- | --- | --- |
 | Working software built with Kiro, in one category | This app; Frankenstein; `.kiro/` with specs and steering | Ready |
-| New project, built in the submission period; disclose pre-existing code | First commit 2026-11-18 (`27fd307`); history not edited | `⟨OWNER: confirm that no code predates Oct 30, or disclose it⟩` |
+| New project, built in the submission period; standard starter templates allowed, but any other pre-existing work must be disclosed | First commit 2026-11-18 (`27fd307`); history not edited. The second commit (`92d940c`, 47 files) includes a `metadata.json` whose fields (`requestFramePermissions`, `majorCapabilities`) match the format of apps exported from Google AI Studio, and its `package.json` was named `react-example` | `⟨OWNER: say where the Nov 18 foundation came from. If it was generated in another tool or from a template, state that in the description⟩` |
 | URL to the functional application; judge credentials in the form if needed | `render.yaml` + `Dockerfile`; `AQUA_JUDGE_PASSWORD` creates an OPERATOR account | **Not deployed** (Part 5) |
 | Text description of features and functionality | Part 1 | Ready |
 | Video under 3 minutes, showing the project working, public on YouTube, no copyrighted music or third-party marks | `docs/DEMO_SCRIPT.md` (2:45, rehearsed click by click) | **Not recorded** |
@@ -139,7 +163,7 @@ The five criteria weigh equally (20% each, 10 points). Note that **Technological
 | Criterion | What the judge can see | Where |
 | --- | --- | --- |
 | Potential Impact | A real problem (unbilled water, unverified repairs), named beneficiaries, and a demo in which the verdict follows from measurements | Video scenes 1, 4–5; Part 1 |
-| Technological Implementation | Specs enforced by a gate, steering rules backed by tests, property-based tests; no hooks, MCP or custom agents | Part 1 "How we used Kiro"; `.kiro/`; `npm run verify:kiro` |
+| Technological Implementation | Specs enforced by a gate that was itself audited and fixed; always-on steering backed by tests; two `PreToolUse` hooks exercised live, with a regression test for the defect the live run found; property-based tests. No custom agents, MCP or Powers | Part 1 "How we used Kiro"; `.kiro/`; `npm run verify:kiro`; `src/kiroHooks.test.ts` |
 | Design | One coherent flow: incident → order → verification → ledger; provenance labels on every datum; bilingual UI; works on mobile | Video; `docs/storyboard/` |
 | Innovation / Idea | A verdict that must be earned by later measurements and can be recomputed by a third party | Video scenes 5–6; `src/core/repairVerification.ts`, `src/core/dossier.ts` |
 | Presentation | One story in 2:45 | `docs/DEMO_SCRIPT.md` (video not yet recorded) |
@@ -157,6 +181,7 @@ The five criteria weigh equally (20% each, 10 points). Note that **Technological
 | Public visitors are read-only; judge is OPERATOR without admin rights | `src/server/accessModel.test.ts`, `security.public.test.ts`; production smoke test on 2026-11-26: 22/22 |
 | Displayed engine text is English when English is selected | `src/server/engineText.coverage.test.ts`, `src/ui/views.test.tsx` |
 | 89 requirements traced to code and tests | `npm run verify:kiro` |
+| The hooks use Kiro's v1 format, their matchers compile as JavaScript regexes, and the guard blocks, asks or allows as described | `src/kiroHooks.test.ts`; live runs on 2026-11-26 (the blocked call and the confirmation prompt are recorded in Kiro's local logs, not in the repository) |
 
 ### Public sources for the problem (context, not results of this project)
 
@@ -213,4 +238,27 @@ Follow `docs/DEMO_SCRIPT.md`: clean state, exact clicks, narration, timings, and
 
 ### 5.4 Fill in the form
 
-Paste Part 1. Replace every `⟨OWNER: …⟩`. Select Frankenstein. Re-read the rules page and submit before the deadline.
+Answer Part 6 first. Then paste Part 1, replace every `⟨OWNER: …⟩` with your answers (or delete the sentence if the honest answer is "no"), select Frankenstein, re-read the rules page and submit before the deadline.
+
+### 5.5 Open the repository folder as the Kiro workspace
+
+The hooks in `.kiro/hooks/` run `node scripts/kiro-guard.mjs` from the workspace root. They work when the repository folder itself is opened in Kiro, which is how a judge would open it. On the development machine the workspace is the parent folder, so that folder has its own copies that point to `KIROWEEN/scripts/kiro-guard.mjs`. Those copies are not in the repository.
+
+---
+
+## Part 6 · Questions only the owner can answer
+
+These answers decide what the Kiro write-up may claim. The Technological Implementation score depends on them. Short, factual answers are enough. "I don't remember" is a valid answer, and it means the sentence stays out.
+
+| # | Question | Why it matters | Where the answer goes |
+| --- | --- | --- | --- |
+| 1 | Where did the Nov 18 foundation (`92d940c`, 47 files, `metadata.json`, package name `react-example`) come from: Kiro, Google AI Studio, another tool, or a template? | The rules require disclosing pre-existing work, and "insufficient use of Kiro" can disqualify an entry | Part 1 "How we used Kiro", Nov 18–23 paragraph; Part 2 |
+| 2 | Which Kiro interfaces did you use for this project: IDE, CLI, Web, Crew? | The rules ask about it explicitly. Kiro Crew is installed on this machine, but nothing shows it was used here | Part 1, last bullet |
+| 3 | Between Nov 18 and 23, did Kiro write specs 01–11 from your prompts, did you write them yourself, or both? | The spec-driven claim must describe what really happened | Part 1, Nov 18–23 paragraph |
+| 4 | Did you ever use Kiro's spec workflow (requirements → design → tasks, the task runner), or only the Markdown files in `.kiro/specs/`? | The write-up currently says the repository shows no task runs | Part 1, spec bullet |
+| 5 | One concrete moment when writing a spec first changed what got built, compared with prompting directly | The rules ask how specs compared with vibe coding | Part 1, spec bullet |
+| 6 | Did a test, a property or the traceability gate ever catch a real mistake during your own work (Nov 18–23)? Which one? | It is the most credible story you can tell, and only if it happened | Part 1, PBT bullet; video, optional |
+| 7 | The commits come from two accounts (`FRANKPIERRECARDENAS` on Nov 18, `Hi_COWORKER` afterwards). Are both you, or is this a team? | Team entries need one representative, and every member must be eligible | Devpost team fields |
+| 8 | Your country of residence | The rules exclude some places | Eligibility |
+| 9 | The exact deadline hour shown on the Devpost page | Our copy of the rules page is from Nov 25 | Your calendar |
+| 10 | Do you want to enter a bonus category (for example Social Blitz with a #KiroweenHackathon26 post)? | Each bonus has its own separate requirements | Part 1, Category |

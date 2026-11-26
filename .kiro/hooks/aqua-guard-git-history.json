@@ -1,0 +1,16 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Block Git history rewrites",
+      "trigger": "PreToolUse",
+      "description": "Before the agent runs a shell command, blocks force-push, reset --hard, rebase, commit --amend and filter-branch. Project rule: the Git history is never rewritten. Dev-only; see scripts/kiro-guard.mjs.",
+      "matcher": "([Pp]wsh|[Bb]ash|[Ss]hell|[Cc]ommand|[Tt]erminal|[Ee]xec)",
+      "action": {
+        "type": "command",
+        "command": "node scripts/kiro-guard.mjs git",
+        "timeout": 15
+      }
+    }
+  ]
+}
