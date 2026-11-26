@@ -12,7 +12,7 @@ TELEMETRY → ANOMALY → DIAGNOSIS → DECISION → WORK ORDER → VERIFICATION
 
 ## The idea
 
-Community water systems lose water to leaks nobody sees, and when something is repaired nobody checks with data that it worked. Most tools stop at the alert. Aqua Sentinel connects the hydraulic diagnosis to the intervention and then **refuses to say a repair worked until later measurements say so**:
+Community water systems lose water to leaks that are hard to see, and in a report-and-close workflow a repair counts as done when the ticket closes, without data showing it worked. Aqua Sentinel connects the hydraulic diagnosis to the intervention and then **refuses to say a repair worked until later measurements say so**:
 
 | After the work order is closed… | The engine says | Sealed in the Trust Ledger |
 | --- | --- | --- |
@@ -77,7 +77,7 @@ Every datum carries its provenance: **MEASURED** (sensor), **DECLARED** (a perso
 - **Spec-driven:** 12 specifications in `.kiro/specs/` with 89 requirements (`REQ-*`). Spec 12 documents the access model, the repair verification and the engine-driven 3D model. It was written after the implementation, to bring those changes under the same traceability rule as the rest.
 - **Strict traceability:** `npm run verify:kiro` fails if a requirement is defined twice, has no table row, cites a file that does not exist, cites no test file, or cites test files that never mention the requirement. "Verified by lint" no longer counts. `src/kiroTrace.test.ts` pins this behaviour and checks the real repository.
 - **Steering:** `.kiro/steering/water-domain-rules.md` holds 23 domain rules (epistemic honesty, "no recovery without measurement", "nothing is simulated silently") and tests enforce them.
-- **Hook:** `.kiro/hooks/spec-traceability-on-save.json` re-runs the traceability test whenever a spec or a test is saved. `.kiro/hooks/verify-integrity.json` is the pipeline `verify:kiro` executes.
+- **Integrity pipeline:** `.kiro/hooks/verify-integrity.json` lists the checks (all tests, type-check, production build) that `npm run verify:kiro` runs after checking traceability. It is a configuration file read by `scripts/verifyKiro.ts`, not a Kiro IDE event hook.
 - **Property-based testing (fast-check):** used where examples are not enough. The invariants of `repairVerification` are checked on random series: `VERIFIED` never appears without three usable post-closure measurements, stale data never changes a verdict, arrival order is irrelevant, and a sealed verdict always recomputes to itself.
 - **Not used, on purpose:** MCP servers, custom agents and Kiro Crew. Nothing in this project needed them, and adding them to look sophisticated would not be honest.
 

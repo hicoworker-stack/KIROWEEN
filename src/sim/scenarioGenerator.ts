@@ -215,7 +215,7 @@ export function buildRepairFrames(mode: RepairSimMode, scenarioId: ScenarioId, a
     events,
   });
 }
-/** Coloca las lecturas de un fotograma como lectura actual de cada nodo (para pruebas y evaluaci�n; el servidor usa la ingesta). */
+/** Coloca las lecturas de un fotograma como lectura actual de cada nodo (para pruebas y evaluación; el servidor usa la ingesta). */
 export function applyFrameToNodes(nodes: NetworkNode[], frame: GeneratedFrame): NetworkNode[] {
   const byNode = new Map(frame.readings.map((r) => [r.nodeId, r]));
   return nodes.map((n) => (byNode.has(n.id) ? { ...n, current: byNode.get(n.id)! } : n));

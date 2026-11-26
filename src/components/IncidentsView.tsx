@@ -272,7 +272,7 @@ export const IncidentsView: React.FC<IncidentsViewProps> = (p) => {
                           {d.missingData.length > 0 && (
                             <ul className="list-disc space-y-0.5 pl-5 text-sm text-quiet">
                               {d.missingData.slice(0, 3).map((m, i) => (
-                                <li key={i}>{m}</li>
+                                <li key={i}>{tr(m)}</li>
                               ))}
                             </ul>
                           )}
@@ -398,7 +398,7 @@ export const IncidentsView: React.FC<IncidentsViewProps> = (p) => {
                                 {v.label}
                               </span>
                             </div>
-                            <p className="text-sm leading-relaxed text-soft">{ch.channel === 'sensores' && a.origin === 'offline-report' ? t('Una persona lo reportó en campo. Ningún sensor lo ha confirmado.', 'A person reported it in the field. No sensor has confirmed it.') : ch.detail}</p>
+                            <p className="text-sm leading-relaxed text-soft">{ch.channel === 'sensores' && a.origin === 'offline-report' ? t('Una persona lo reportó en campo. Ningún sensor lo ha confirmado.', 'A person reported it in the field. No sensor has confirmed it.') : tr(ch.detail)}</p>
                           </li>
                         );
                       })}
@@ -406,7 +406,7 @@ export const IncidentsView: React.FC<IncidentsViewProps> = (p) => {
 
                     {vision && (
                       <div className="flex flex-wrap items-start gap-4 rounded-xl border border-line bg-surface p-4">
-                        <img src={vision.imageUrl} alt={t(`Fotografía vinculada a este incidente: ${vision.imageTitle}`, `Photo linked to this incident: ${vision.imageTitle}`)} className="h-24 w-36 rounded-lg border border-line-strong bg-canvas object-cover" onError={(e) => ((e.currentTarget.style.visibility = 'hidden'))} />
+                        <img src={vision.imageUrl} alt={t(`Fotografía vinculada a este incidente: ${vision.imageTitle}`, `Photo linked to this incident: ${tr(vision.imageTitle)}`)} className="h-24 w-36 rounded-lg border border-line-strong bg-canvas object-cover" onError={(e) => ((e.currentTarget.style.visibility = 'hidden'))} />
                         <div className="min-w-0 flex-1 space-y-1.5 text-sm">
                           <p className="font-medium text-ink">{tr(vision.imageTitle)}</p>
                           {vision.analysisStatus === 'analyzed' ? (
@@ -416,7 +416,7 @@ export const IncidentsView: React.FC<IncidentsViewProps> = (p) => {
                               </p>
                               <ul className="list-disc pl-5 text-soft">
                                 {vision.observed.slice(0, 3).map((o, i) => (
-                                  <li key={i}>{o}</li>
+                                  <li key={i}>{tr(o)}</li>
                                 ))}
                               </ul>
                             </>

@@ -80,7 +80,10 @@ export const OUTCOME_LABEL: Record<RepairOutcome, string> = live(() => ({
 }));
 const ruleLabel = (rule: string): string =>
   ({ PRESSURE_DROP_LEAK: t('Regla: caída de presión con más caudal', 'Rule: pressure drop with more flow'), FLOW_OBSTRUCTION: t('Regla: caudal bajo con presión alta', 'Rule: low flow with high pressure') })[rule] ??
-  rule.replace('balance hidráulico: ', t('Balance hidráulico: ', 'Hydraulic balance: '));
+  // El motor identifica el nivel con su código (localized_leak…); en pantalla se muestra la etiqueta legible del mismo nivel.
+  (rule.startsWith('balance hidráulico: ')
+    ? `${t('Balance hidráulico', 'Hydraulic balance')}: ${ENGINE_LEVEL_LABEL[rule.slice('balance hidráulico: '.length) as HydraulicLevel] ?? rule.slice('balance hidráulico: '.length)}`
+    : rule);
 const toneLabel = (tone: SimTone): string => ({ ok: t('Normal', 'Normal'), attention: t('Atención', 'Attention'), critical: t('Crítico', 'Critical'), offline: t('Sin servicio', 'Out of service') })[tone];
 
 export interface SimReading {

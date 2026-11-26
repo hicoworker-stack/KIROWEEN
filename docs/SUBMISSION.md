@@ -37,7 +37,7 @@ On a deployed instance (public mode is read-only), the operator sets `AQUA_JUDGE
 
 - **Specs:** 12 specs, 89 `REQ-*` requirements, each traced to code and to a test that names it. `npm run verify:kiro` fails if any requirement is defined twice, has no row, cites a missing file, cites no test, or cites tests that never mention it. Spec 12 was written after its implementation and says so.
 - **Steering:** 23 domain rules (`.kiro/steering/water-domain-rules.md`) such as "no recovery without measurement" and "nothing is simulated silently". Tests enforce them, so they are not just prose.
-- **Hooks:** `.kiro/hooks/spec-traceability-on-save.json` re-runs the traceability test whenever a spec or a test file is saved.
+- **Integrity pipeline:** `.kiro/hooks/verify-integrity.json` lists the checks `npm run verify:kiro` runs (all tests, type-check, build). It is read by `scripts/verifyKiro.ts`; it is not a Kiro IDE event hook, and we do not claim one.
 - **Property-based testing:** `fast-check` on the repair-verification invariants (never `VERIFIED` without three usable post-closure measurements; stale data and arrival order never change a verdict; a sealed verdict always recomputes to itself).
 - **What we did not use:** MCP servers, custom agents, Kiro Crew, powers. We did not need them and will not pretend otherwise.
 
@@ -57,17 +57,20 @@ On 2026-11-25 every route (Home with the 3D model, Map, Incidents, Work orders, 
 
 ## Impact: problem, who benefits, and what is evidence
 
-**Public sources (context, not results of this project):**
-- Liemberger, R. and Wyatt, A. (2019), "Quantifying the global non-revenue water problem", *Water Supply* 19(3), IWA Publishing. Their estimate is about 346 million m³ per day, or 126 billion m³ per year, with a conservative value of about USD 39 billion per year at USD 0.31/m³. Non-revenue water includes leaks, but also unbilled and unauthorized use, so it is not all physical loss.
-- World Bank blog, ["What is non-revenue water? How can we reduce it for better water service?"](https://blogs.worldbank.org/en/water/what-non-revenue-water-how-can-we-reduce-it-better-water-service) (2024): it cites a World Bank estimate of about 32 billion m³ of physical losses per year, half of it in developing countries.
+**Public sources (context, not results of this project).** Each was read at the source on 2026-11-25; the wording below is paraphrased.
+- World Bank, *The Challenge of Reducing Non-Revenue Water in Developing Countries: How the Private Sector Can Help* (Kingdom, Liemberger and Marin, 2006), [Open Knowledge Repository](https://openknowledge.worldbank.org/entities/publication/bba46a1a-4a9a-59b4-968f-306e32b1338f). Its abstract defines non-revenue water as the gap between the water put into the distribution system and the water billed, says high levels reflect leaks, unbilled water or both, and says this hurts utilities' finances through lost revenue and higher operating costs.
+- World Bank, *Reducing Water Loss in Developing Countries Using Performance-Based Service Contracting* (Kingdom, Liemberger and Marin, 2008), listed on the same repository page. Its abstract puts the worldwide cost of non-revenue water at a conservative USD 15 billion per year.
+- World Bank blog, ["What is non-revenue water? How can we reduce it for better water service?"](https://blogs.worldbank.org/en/water/what-non-revenue-water-how-can-we-reduce-it-better-water-service), written for World Water Week 2016. It describes performance-based contracts, where the contractor is paid on results, and a World Bank–financed project in Ho Chi Minh City that cut the water lost to leakage in half, about 100,000 m³ per day.
 
-We read these figures from search results and the World Bank page on 2026-11-25, not from the full papers. Check them against the originals before quoting them in the video or the Devpost text. Aqua Sentinel's own results contain no percentages, savings or user numbers.
+We do not quote global volume figures (for example from Liemberger and Wyatt, 2019, *Water Supply* 19(3), doi:10.2166/ws.2018.129) because the full paper could not be opened from here. Aqua Sentinel's own results contain no percentages, savings or user numbers.
 
-- **Problem.** A large share of treated water never reaches a customer, and hidden leaks are a main physical cause. A repair is usually recorded as done when the crew closes the ticket, and nobody checks that the network recovered.
+Why this matters for Aqua Sentinel: when payment or oversight depends on results, someone has to show that a repair actually reduced the loss. That is the gap the verified-repair dossier addresses. It is a design argument, not a claim that any utility or contract uses Aqua Sentinel.
+
+- **Problem.** Part of the water a utility puts into its network is never billed, and leaks are one of the causes named by the sources above. In a report-and-close workflow a repair counts as done when the ticket closes, and nothing in that workflow checks that the network recovered.
 - **Who benefits.** Operators of small and medium water systems, who have few analysts and need to know where to send a crew. Municipal oversight and auditors, who need a record they can check without trusting the operator. Residents, who feel the result as pressure and supply. These are intended beneficiaries; none of them has used the product.
 - **Use case.** A pressure drop at one node and a flow imbalance in the same area. The engine separates a leak from a sensor fault or a demand change, says when it cannot conclude, proposes a location, a person decides, and later measurements confirm or reject the repair.
 - **Against a conventional report-and-close system.** There, a ticket closes when the crew leaves. Here the point stays "pending verification" until three consecutive usable measurements agree and the water balance no longer shows the leak, and anyone holding the dossier can recompute that verdict.
-- **Evidence status.** Synthetic: the network, the readings, the leak, the post-repair measurements (all labelled SIMULATED in the interface). Public data: only the context figures above. Real validation: none. There is no field pilot, no real utility data and no measured savings.
+- **Evidence status.** Synthetic: the network, the readings, the leak, the post-repair measurements (all labelled SIMULATED in the interface). Public data: only the context from the sources above. Real validation: none. There is no field pilot, no real utility data and no measured savings.
 
 ## What we do not claim
 
@@ -94,10 +97,19 @@ Checked against the [official rules](https://kiroween.devpost.com/rules) on 2026
 
 ## Deployment (prepared, not performed)
 
-`Dockerfile` and `render.yaml` run the app in public read-only mode with synthetic data. Docker is not installed on the development machine, so the image has not been built here. What was verified instead: the production server (`NODE_ENV=production`, same entry point as the Dockerfile) is started by the end-to-end tests, which cover host and origin allow-lists, secure cookies, the read-only public routes, and rejection of writes.
+`Dockerfile` and `render.yaml` run the app in public read-only mode with synthetic data.
 
-To go live, the owner needs a Render account (or any Docker host) and must:
-1. Create the service from `render.yaml` and set `AQUA_ALLOWED_HOSTS` and `AQUA_ALLOWED_ORIGINS` to the real domain.
-2. Set `AQUA_JUDGE_PASSWORD` (12+ characters) as a secret in the dashboard. It creates the `judge` account with role OPERATOR. It must never be committed.
-3. Know that the free plan has an ephemeral disk: state is reseeded on restart. Export a snapshot before recording.
-4. Open the URL, run the cycle once, and check `/api/health`.
+**What was verified on 2026-11-25, without Docker:** the server started with the same settings as the container (`NODE_ENV=production`, `--public`, `AQUA_JUDGE_PASSWORD` set, host allow-list). Results:
+- Anonymous `GET /api/state` and `/api/preview/leak` return 200. The dossier, state export and `.kiro` file routes return 401, and an anonymous write returns 401.
+- A request with an unknown `Host` header gets 421.
+- The public state contains no secrets.
+- The `judge` account logs in as OPERATOR, can trigger the scenario, and gets 403 on reset and export. A wrong password gets 401.
+
+**Not verified:** Docker is not installed on the development machine, so the image has **not** been built or run. One defect was found by reading the files and is fixed but unproven: the container runs as `USER node`, writes everything under `/app/data`, and `data` is excluded by `.dockerignore`, so the folder could not be created. The `Dockerfile` now creates `/app/data` and gives it to `node` before switching user.
+
+**What the owner must do (needs a Render account; nothing here was created on Render):**
+1. Build once where Docker exists: `docker build -t aqua-sentinel .` then `docker run -p 8080:8080 -e AQUA_ALLOWED_HOSTS=localhost:8080 -e AQUA_ALLOWED_ORIGINS=http://localhost:8080 -e AQUA_JUDGE_PASSWORD=<12+ chars> aqua-sentinel` and open `http://localhost:8080/api/health`.
+2. On Render, create the service from `render.yaml`. Then set `AQUA_ALLOWED_HOSTS` and `AQUA_ALLOWED_ORIGINS` to the **exact** subdomain Render assigns. Render sends its health check with that `Host` header, so a mismatch returns 421 and the deploy never turns healthy.
+3. Set `AQUA_JUDGE_PASSWORD` as a secret in the dashboard (the Blueprint declares it with `sync: false`, so it is never in the repository). Share user `judge` and the password only in the Devpost form.
+4. The free plan has an ephemeral disk: the demo is reseeded on restart, and so is the sealing key unless `AQUA_SEAL_PRIVATE_KEY_PEM` is set as a secret. Without it, receipts issued before a restart cannot be checked against the new key.
+5. Open the URL, log in as `judge`, run the cycle once, and check `/api/health`.

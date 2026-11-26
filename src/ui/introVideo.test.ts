@@ -110,7 +110,10 @@ test('REQ-PUB-03: la estructura de archivos para publicar el video existe en el 
     assert.ok(!srcs.has(parsed.src), 'cada idioma tiene su propio archivo: nunca se reutiliza el de otro idioma');
     srcs.add(parsed.src);
     const file = path.join(root, 'public', parsed.src);
-    assert.equal(parsed.enabled, fs.existsSync(file), `${lang}: enabled solo es true si el archivo de video existe (sin 404 ni reproducción simulada)`);
+    // Un video activado debe existir (sin 404 ni reproducción simulada). Desactivarlo es válido aunque el archivo siga en el
+    // repositorio: así se retira un video desactualizado sin borrarlo, y la interfaz muestra «próximamente».
+    if (parsed.enabled) assert.ok(fs.existsSync(file), `${lang}: un video activado existe en el repositorio`);
+    else assert.equal(resolveVideoState(parsed, 'video/mp4'), 'soon', `${lang}: un video desactivado se muestra como «próximamente», nunca se reproduce`);
     if (parsed.enabled) assert.ok(fs.statSync(file).size > 10_000, `${lang}: el archivo de video no está vacío`);
     if (parsed.captions) {
       const vtt = fs.readFileSync(path.join(root, 'public', parsed.captions), 'utf8');
@@ -118,7 +121,6 @@ test('REQ-PUB-03: la estructura de archivos para publicar el video existe en el 
       assert.match(vtt, lang === 'es' ? /simulad/i : /simulated/i, `${lang}: la narración declara que los datos son simulados`);
     }
   }
-  assert.ok(parseVideoConfigFor(cfg, 'es').src, 'la versión en español está publicada');
   assert.ok(fs.existsSync(path.join(root, 'public', 'images', 'hero-network.svg')), 'existe la imagen del encabezado');
   assert.ok(fs.existsSync(path.join(root, 'public', 'videos')), 'existe la carpeta de videos');
   for (const svg of ['hero-network.svg', 'video-poster.svg']) {

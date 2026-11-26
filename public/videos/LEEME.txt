@@ -1,3 +1,11 @@
+ESTADO ACTUAL (2026-11-25): LOS DOS VIDEOS ESTAN DESACTIVADOS ("enabled": false)
+=====================================================================
+Se grabaron el 22-11-2026, antes de la verificacion de reparaciones. Su narracion dice que UNA medicion
+normal basta para dar por recuperado el punto; hoy una sola medicion da INCONCLUSIVE y hacen falta tres
+seguidas y que el balance hidraulico ya no muestre la fuga. Para no contradecir al producto, la portada
+muestra "proximamente". Los archivos se conservan. Cuando exista la grabacion final (docs/DEMO_SCRIPT.md),
+copiala aqui, pon su nombre en "src" y vuelve a poner "enabled": true.
+
 VIDEO DE AQUA SENTINEL
 =======================
 La pantalla de Inicio reproduce aqua-sentinel-demo.mp4 (2 min 20 s) con los subtitulos

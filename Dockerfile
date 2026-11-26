@@ -17,5 +17,8 @@ ENV NODE_ENV=production \
 #   AQUA_ALLOWED_HOSTS=aqua-sentinel.onrender.com
 #   AQUA_ALLOWED_ORIGINS=https://aqua-sentinel.onrender.com
 EXPOSE 8080
+# El proceso corre sin privilegios (USER node) y escribe estado, clave de sellado, usuarios y auditoría bajo /app/data.
+# 'data' está excluida por .dockerignore, así que se crea aquí y se entrega al usuario node; sin esto no podría escribirla.
+RUN mkdir -p /app/data && chown -R node:node /app/data
 USER node
 CMD ["npx", "tsx", "server.ts", "--public"]
