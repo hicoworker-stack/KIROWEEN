@@ -330,7 +330,7 @@ test('REQ-PUB-03: con video publicado se reproduce solo bajo demanda: sin autopl
   assert.match(h, /aria-label="Aqua Sentinel"/);
 });
 
-test('REQ-I18N-01: el selector EN / ES vive en la cabecera, el Hero sigue el idioma activo y cambiarlo cambia los textos', () => {
+test('REQ-LANG-01: el selector EN / ES vive en la cabecera, el Hero sigue el idioma activo y cambiarlo cambia los textos', () => {
   try {
     setLang('en');
     const shellEn = shell();
@@ -353,7 +353,7 @@ test('REQ-I18N-01: el selector EN / ES vive en la cabecera, el Hero sigue el idi
     setLang('es');
   }
 });
-test('REQ-I18N-01: lo que muestra la interfaz de una orden, de un veredicto y de la simulación sale en inglés sin restos en español', () => {
+test('REQ-LANG-01: lo que muestra la interfaz de una orden, de un veredicto y de la simulación sale en inglés sin restos en español', () => {
   try {
     setLang('en');
     const sealed = { index: 12, action: 'REPAIR_VERIFIED', evidenceData: { workOrderId: 'OT-1', outcome: 'VERIFIED', assessment: { outcome: 'VERIFIED', code: 'verified', measuredAfter: 3, required: 3, anomalousInRow: 0, synthetic: true, reasons: ['3 mediciones consecutivas (texto del registro, en español)'] } } } as never;
@@ -372,6 +372,26 @@ test('REQ-I18N-01: lo que muestra la interfaz de una orden, de un veredicto y de
     assert.match(home, /Interactive 3D simulation/);
     assert.match(home, /The network is stable/);
     assert.doesNotMatch(home, /Estado de la red|La red está estable|Simulación 3D/);
+    // El incidente muestra frases escritas por el motor (en español en el estado sellado): deben salir traducidas al pintarse.
+    const engineDiag = diag({
+      primaryHypothesis: 'Consumo no medido o toma no autorizada.',
+      uncertaintyStatement: 'Presión en puntos intermedios del tramo.',
+      missingData: ['Inspección acústica o prueba de presión del tramo.'],
+      alternativeHypotheses: [
+        {
+          title: 'Deriva o error de calibración en los medidores de caudal',
+          likelihood: 'Media',
+          supportingEvidence: 'Explicaría un exceso aparente de caudal.',
+          contradictingOrMissing: 'Sin inspección visual analizada no se puede distinguir una fuga de un consumo no medido.',
+        },
+      ],
+    } as never);
+    const inc = text(html(<IncidentsView {...incidentProps({ diagnoses: [engineDiag] })} />));
+    assert.match(inc, /Unmetered consumption or unauthorized connection\./);
+    assert.match(inc, /Acoustic inspection or pressure test of the section\./);
+    assert.match(inc, /Drift or calibration error in the flow meters/);
+    assert.match(inc, /It would explain an apparent flow excess\./);
+    assert.doesNotMatch(inc, /Consumo no medido|Inspección acústica|regla\(s\) determinista|Exceso de caudal|Hay una fotografía/, 'ninguna frase del motor llega sin traducir');
   } finally {
     setLang('es');
   }

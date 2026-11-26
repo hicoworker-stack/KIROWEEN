@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 
 /**
- * REQ-I18N-01: idioma de la interfaz, ligero y sin duplicar componentes. Español e inglés conviven en el mismo componente:
+ * REQ-LANG-01: idioma de la interfaz, ligero y sin duplicar componentes. Español e inglés conviven en el mismo componente:
  * `t('texto en español', 'English text')`. Si falta la versión en inglés, se muestra el español: nunca queda un texto vacío.
  *
  * Alcance honesto: traduce lo que dibuja la interfaz. El contenido que GENERA el servidor y queda guardado en el estado

@@ -16,3 +16,8 @@ services:
       # Cuenta de evaluación (rol OPERATOR, usuario judge). Se define en el panel de Render, nunca aquí (sync: false).
       - key: AQUA_JUDGE_PASSWORD
         sync: false
+      # Tras el proxy de Render todos los visitantes comparten IP (sus IP no son fijas, no se puede fijar AQUA_TRUSTED_PROXIES).
+      # El límite de inicios de sesión POR IP sería común a todos los jueces; se amplía aquí. La protección contra fuerza bruta
+      # sigue en el límite por cuenta (login-user: 8 fallos / 15 min), que no depende de la IP.
+      - key: AQUA_RATE_LIMITS
+        value: '{"login-ip":{"max":300,"windowMs":900000}}'

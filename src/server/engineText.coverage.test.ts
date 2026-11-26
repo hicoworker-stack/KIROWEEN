@@ -5,7 +5,7 @@ import { runLeakToClosedOrder } from './testing/flows';
 import { translateEngineText } from '../ui/engineText';
 
 /**
- * REQ-I18N-02: el texto que emiten el servidor y el motor se traduce al mostrarlo, sin tocar el motor.
+ * REQ-LANG-02: el texto que emiten el servidor y el motor se traduce al mostrarlo, sin tocar el motor.
  * Esta prueba usa el servidor REAL: lanza el ciclo completo (fuga, diagnóstico, decisión, orden, cierre, tres veredictos, expediente,
  * los otros escenarios y la vista previa 3D) y exige que cada frase que la interfaz muestra salga en inglés sin restos en español.
  * Los nombres propios de los nodos (Troncal Sector Norte...) y el texto escrito por personas se conservan a propósito.
@@ -35,7 +35,7 @@ function collect(v: unknown, key: string, out: Set<string>, own = false) {
   else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) collect(x, k, out, SHOWN.has(k));
 }
 
-test('REQ-I18N-02: el ciclo completo (tres veredictos, expediente, escenarios y vista previa 3D) se muestra en inglés sin restos en español', async () => {
+test('REQ-LANG-02: el ciclo completo (tres veredictos, expediente, escenarios y vista previa 3D) se muestra en inglés sin restos en español', async () => {
   const seen = new Set<string>();
   const names = new Set<string>();
   const grab = (data: unknown) => {

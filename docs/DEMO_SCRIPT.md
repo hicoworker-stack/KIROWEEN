@@ -9,7 +9,7 @@ Status: **not recorded yet.** This is the recording package. No video is publish
 2. A repair counts only after later measurements confirm it.
 3. The evidence can be checked, and tampering is caught.
 
-Target length **2:45**. Judges are not required to watch past 3:00 (Devpost rules), so nothing essential comes after 2:40.
+Target length **2:45**. Judges are not required to watch past 3:00 (Devpost rules), so the closing line starts at 2:36 and nothing essential comes later.
 
 Every step below was executed click by click in a real browser on 2026-11-25, in English, at 1440×900 and at 390×844, with the guest session the presenter will use: 26 of 26 checks passed, with no console or HTTP errors. The screenshots in [`storyboard/`](storyboard/) come from that run.
 
@@ -28,15 +28,15 @@ Every step below was executed click by click in a real browser on 2026-11-25, in
 
 ## Storyboard
 
-Narration is about 330 words at a calm pace. Times are cumulative.
+Narration is 295 words, about 1.8 words per second overall and never above 2.3 in any scene, which leaves room for pauses. Times are cumulative.
 
-### 1 · Problem (0:00–0:12)
+### 1 · Problem (0:00–0:13)
 - **Screen:** Home, hero. ([01-home.png](storyboard/01-home.png))
 - **Action:** none.
 - **Jury sees:** the product name and the SIMULATED badge.
 - **Say:** "Water networks lose water through leaks that are hard to see. And in most workflows, a repair counts as done when the ticket closes, without any data showing it worked."
 
-### 2 · Diagnosis that knows its limits (0:12–0:50)
+### 2 · Diagnosis that knows its limits (0:13–0:50)
 - **Screen:** Home, scroll to the 3D model. Click **Next step** twice to reach **STEP 3 OF 5 · INVESTIGATION**.
 - **Action:** drag **Simulated leak size** to 2, then 6, then 12 L/s. Pause on each.
 - **Jury sees:** the panel "What the hydraulic engine concludes" changes: *no anomaly* at 2 L/s; *flow anomaly (not corroborated)* at 6 L/s ([02](storyboard/02-3d-flow-anomaly-6Ls.png)); *Leak localized to a reach* at 12 L/s, with inflow, outflow, excess ± uncertainty and detection limit ([03](storyboard/03-3d-localized-leak-12Ls.png)).
@@ -60,13 +60,13 @@ Narration is about 330 words at a calm pace. Times are cumulative.
 - **Jury sees:** first **Not enough evidence yet**, 1/3 ([06](storyboard/06-order-inconclusive.png)). Then **Repair verified with later measurements**, 3/3, SIMULATED, sealed in the Trust Ledger with its block number ([07](storyboard/07-order-repair-verified.png)).
 - **Say:** "Now new measurements arrive. They are simulated here, and labeled as such. One normal reading is not enough. After three consecutive normal measurements, and with the water balance no longer showing the leak, the repair is verified and sealed with the readings behind it. If the leak had persisted, the case would reopen instead."
 
-### 6 · Trust (2:12–2:40)
+### 6 · Trust (2:12–2:36)
 - **Screen:** click **Download the verifiable dossier**, then **See the record (Trust Ledger)**.
 - **Action:** click **Simulate tampering (audit test)**, then **Verify chain integrity**. Finish with **Restore the intact chain**.
 - **Jury sees:** the verdict entry *REPAIR_VERIFIED*, then **Integrity broken at block #1**, detected both in the browser and on the server ([08](storyboard/08-ledger-tamper-detected.png)).
 - **Say:** "The verdict travels with its evidence in a dossier anyone can verify offline, and the verifier recomputes it instead of trusting the server. Every step is chained by SHA-256. Change one past entry, and the chain breaks, in the browser and on the server."
 
-### Close (2:40–2:45)
+### Close (2:36–2:45)
 - **Screen:** stay on the ledger.
 - **Say:** "Aqua Sentinel shows what it knows, what it cannot claim, what was done, and whether the network really recovered."
 

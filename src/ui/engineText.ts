@@ -1,7 +1,7 @@
 import { getLang } from './i18n';
 
 /**
- * REQ-I18N-02: capa de presentación para el texto que genera el servidor o el motor.
+ * REQ-LANG-02: capa de presentación para el texto que genera el servidor o el motor.
  *
  * El motor hidráulico, las plantillas de diagnóstico, el ledger y el verificador emiten frases en español. Esas frases se
  * guardan, se sellan y se verifican tal cual: traducirlas en el motor cambiaría el hash del ledger y los resultados. Por eso
